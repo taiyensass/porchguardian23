@@ -20,8 +20,40 @@ import {
   Shield,
   X,
   CheckCircle2,
+  Edit,
+  Plus,
 } from "lucide-react";
-import type { Booking, Guardian, User } from "@shared/schema";
+import type { Booking, Guardian, User, PricingTier } from "@shared/schema";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { insertPricingTierSchema } from "@shared/schema";
+import { z } from "zod";
 
 type BookingWithDetails = Booking & {
   guardian: Guardian & { user: User };
@@ -797,7 +829,7 @@ function AdminDashboardView() {
   });
 
   return (
-    <div data-testid="admin-dashboard-view">
+    <div data-testid="admin-dashboard-view" className="space-y-8">
       <Card>
         <CardHeader>
           <CardTitle>Pending Guardian Approvals ({pendingGuardians?.length || 0})</CardTitle>
@@ -858,6 +890,436 @@ function AdminDashboardView() {
           )}
         </CardContent>
       </Card>
+
+      <PricingTierManagement />
     </div>
+  );
+}
+
+// ===== PRICING TIER MANAGEMENT =====
+function PricingTierManagement() {
+  const { toast } = useToast();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingTier, setEditingTier] = useState<PricingTier | null>(null);
+
+  const { data: pricingTiers, isLoading } = useQuery<PricingTier[]>({
+    queryKey: ["/api/admin/pricing-tiers"],
+  });
+
+  const createTierMutation = useMutation({
+    mutationFn: async (data: z.infer<typeof insertPricingTierSchema>) => {
+      const response = await apiRequest("POST", "/api/admin/pricing-tiers", data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pricing-tiers"] });
+      toast({
+        title: "Success",
+        description: "Pricing tier created successfully",
+      });
+      setDialogOpen(false);
+      setEditingTier(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateTierMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<z.infer<typeof insertPricingTierSchema>> }) => {
+      const response = await apiRequest("PATCH", `/api/admin/pricing-tiers/${id}`, data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pricing-tiers"] });
+      toast({
+        title: "Success",
+        description: "Pricing tier updated successfully",
+      });
+      setDialogOpen(false);
+      setEditingTier(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleOpenDialog = (tier?: PricingTier) => {
+    setEditingTier(tier || null);
+    setDialogOpen(true);
+  };
+
+  const handleCloseDialog = () => {
+    setDialogOpen(false);
+    setEditingTier(null);
+  };
+
+  const calculatePlatformProfit = (priceUsd: number, credits: number, guardianPayout: number) => {
+    return priceUsd - (credits * guardianPayout);
+  };
+
+  const sortedTiers = pricingTiers?.sort((a, b) => a.displayOrder - b.displayOrder) || [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <CardTitle>Credit Pricing Tiers</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Manage credit bundle pricing and guardian payout rates
+            </p>
+          </div>
+          <Button onClick={() => handleOpenDialog()} data-testid="button-add-tier">
+            <Plus className="h-4 w-4 mr-2" />
+            Add New Tier
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+          </div>
+        ) : sortedTiers.length > 0 ? (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Credits</TableHead>
+                <TableHead>Price (USD)</TableHead>
+                <TableHead>Guardian Payout/Credit</TableHead>
+                <TableHead>Platform Profit</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedTiers.map((tier) => {
+                const profit = calculatePlatformProfit(
+                  parseFloat(tier.priceUsd),
+                  tier.credits,
+                  parseFloat(tier.guardianPayoutPerCredit)
+                );
+                return (
+                  <TableRow key={tier.id} data-testid={`row-tier-${tier.id}`}>
+                    <TableCell className="font-medium" data-testid={`text-tier-name-${tier.id}`}>
+                      {tier.name}
+                    </TableCell>
+                    <TableCell data-testid={`text-tier-credits-${tier.id}`}>
+                      {tier.credits}
+                    </TableCell>
+                    <TableCell data-testid={`text-tier-price-${tier.id}`}>
+                      ${parseFloat(tier.priceUsd).toFixed(2)}
+                    </TableCell>
+                    <TableCell data-testid={`text-tier-payout-${tier.id}`}>
+                      ${parseFloat(tier.guardianPayoutPerCredit).toFixed(2)}
+                    </TableCell>
+                    <TableCell data-testid={`text-tier-profit-${tier.id}`}>
+                      <span className="font-semibold text-green-600">
+                        ${profit.toFixed(2)}
+                      </span>
+                      <span className="text-xs text-muted-foreground ml-1">
+                        per bundle
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={tier.isActive ? "default" : "secondary"}
+                        data-testid={`badge-tier-status-${tier.id}`}
+                      >
+                        {tier.isActive ? "Active" : "Inactive"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleOpenDialog(tier)}
+                        data-testid={`button-edit-tier-${tier.id}`}
+                      >
+                        <Edit className="h-4 w-4 mr-1" />
+                        Edit
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        ) : (
+          <div className="p-12 text-center text-muted-foreground">
+            No pricing tiers configured yet
+          </div>
+        )}
+      </CardContent>
+
+      <PricingTierDialog
+        open={dialogOpen}
+        onOpenChange={handleCloseDialog}
+        tier={editingTier}
+        onSubmit={(data) => {
+          if (editingTier) {
+            updateTierMutation.mutate({ id: editingTier.id, data });
+          } else {
+            createTierMutation.mutate(data);
+          }
+        }}
+        isPending={createTierMutation.isPending || updateTierMutation.isPending}
+      />
+    </Card>
+  );
+}
+
+// ===== PRICING TIER DIALOG =====
+const pricingTierFormSchema = insertPricingTierSchema.extend({
+  name: z.string().min(1, "Name is required"),
+  credits: z.number().min(1, "Credits must be greater than 0"),
+  priceUsd: z.string().refine((val) => parseFloat(val) > 0, "Price must be greater than 0"),
+  guardianPayoutPerCredit: z.string().refine((val) => parseFloat(val) > 0, "Guardian payout must be greater than 0"),
+  displayOrder: z.number().min(0, "Display order must be 0 or greater"),
+});
+
+type PricingTierFormData = z.infer<typeof pricingTierFormSchema>;
+
+function PricingTierDialog({
+  open,
+  onOpenChange,
+  tier,
+  onSubmit,
+  isPending,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  tier: PricingTier | null;
+  onSubmit: (data: any) => void;
+  isPending: boolean;
+}) {
+  const form = useForm<PricingTierFormData>({
+    resolver: zodResolver(pricingTierFormSchema),
+    defaultValues: {
+      name: tier?.name || "",
+      credits: tier?.credits || 10,
+      priceUsd: tier?.priceUsd || "10.00",
+      guardianPayoutPerCredit: tier?.guardianPayoutPerCredit || "0.50",
+      isActive: tier?.isActive ?? true,
+      displayOrder: tier?.displayOrder || 0,
+    },
+  });
+
+  useEffect(() => {
+    if (tier) {
+      form.reset({
+        name: tier.name,
+        credits: tier.credits,
+        priceUsd: tier.priceUsd,
+        guardianPayoutPerCredit: tier.guardianPayoutPerCredit,
+        isActive: tier.isActive,
+        displayOrder: tier.displayOrder,
+      });
+    } else {
+      form.reset({
+        name: "",
+        credits: 10,
+        priceUsd: "10.00",
+        guardianPayoutPerCredit: "0.50",
+        isActive: true,
+        displayOrder: 0,
+      });
+    }
+  }, [tier, form]);
+
+  const handleSubmit = (data: PricingTierFormData) => {
+    onSubmit(data);
+  };
+
+  const watchedValues = form.watch();
+  const platformProfit = watchedValues.priceUsd && watchedValues.credits && watchedValues.guardianPayoutPerCredit
+    ? parseFloat(watchedValues.priceUsd) - (watchedValues.credits * parseFloat(watchedValues.guardianPayoutPerCredit))
+    : 0;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl" data-testid="dialog-tier-form">
+        <DialogHeader>
+          <DialogTitle>{tier ? "Edit Pricing Tier" : "Create Pricing Tier"}</DialogTitle>
+          <DialogDescription>
+            Configure credit bundle pricing and guardian payout rates
+          </DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Tier Name</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="e.g., Starter Pack, Value Bundle"
+                      {...field}
+                      data-testid="input-tier-name"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="credits"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Number of Credits</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min="1"
+                        {...field}
+                        onChange={(e) => field.onChange(parseInt(e.target.value))}
+                        data-testid="input-tier-credits"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="priceUsd"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Price (USD)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        placeholder="10.00"
+                        {...field}
+                        data-testid="input-tier-price"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="guardianPayoutPerCredit"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Guardian Payout per Credit</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        placeholder="0.50"
+                        {...field}
+                        data-testid="input-tier-guardian-payout"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="displayOrder"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Display Order</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min="0"
+                        {...field}
+                        onChange={(e) => field.onChange(parseInt(e.target.value))}
+                        data-testid="input-tier-display-order"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <FormField
+              control={form.control}
+              name="isActive"
+              render={({ field }) => (
+                <FormItem className="flex items-center gap-3 space-y-0">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      data-testid="checkbox-tier-active"
+                    />
+                  </FormControl>
+                  <FormLabel className="!mt-0">
+                    Active (customers can purchase this tier)
+                  </FormLabel>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="rounded-md bg-muted p-4">
+              <h4 className="font-semibold mb-2">Economics Preview</h4>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Customer Pays:</span>
+                  <span className="font-medium">${parseFloat(watchedValues.priceUsd || "0").toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Guardian Earns (Total):</span>
+                  <span className="font-medium">
+                    ${((watchedValues.credits || 0) * parseFloat(watchedValues.guardianPayoutPerCredit || "0")).toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-between pt-2 border-t">
+                  <span className="font-semibold">Platform Profit per Bundle:</span>
+                  <span className="font-semibold text-green-600" data-testid="text-tier-profit-preview">
+                    ${platformProfit.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={isPending}
+                data-testid="button-cancel-tier"
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isPending} data-testid="button-save-tier">
+                {isPending ? "Saving..." : tier ? "Update Tier" : "Create Tier"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
   );
 }
