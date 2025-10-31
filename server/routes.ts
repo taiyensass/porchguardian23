@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import express from "express";
 import { createServer, type Server } from "http";
 import Stripe from "stripe";
 import { storage } from "./storage";
@@ -478,12 +479,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Credit Purchase Confirmation Webhook (placeholder)
-  app.post("/api/stripe-webhook", async (req, res) => {
-    // TODO: Implement Stripe webhook handler for credit purchase confirmation
-    // This will be implemented separately with proper signature verification
-    res.status(501).json({ message: "Webhook handler not yet implemented" });
+  // Credit Purchase Confirmation Webhook with Signature Verification
+  app.post("/api/stripe-webhook", express.raw({ type: 'application/json' }), async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    // In development, if webhook secret is not configured, log a warning but allow the request
+    if (!webhookSecret) {
+      console.warn("⚠️  STRIPE_WEBHOOK_SECRET not configured - webhook signature verification skipped (NOT SAFE FOR PRODUCTION)");
+      
+      // Parse the raw body as JSON for development mode
+      const bodyString = req.body.toString();
+      try {
+        const event = JSON.parse(bodyString);
+        return handleWebhookEvent(event, res, storage);
+      } catch (err: any) {
+        console.error("Failed to parse webhook body:", err.message);
+        return res.status(400).send('Invalid JSON body');
+      }
+    }
+    
+    if (!sig) {
+      console.error("Webhook error: No signature header found");
+      return res.status(400).send('No signature header');
+    }
+
+    let event;
+
+    try {
+      // Verify webhook signature with Stripe
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        webhookSecret
+      );
+    } catch (err: any) {
+      console.error(`Webhook signature verification failed: ${err.message}`);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    // Handle the verified event
+    return handleWebhookEvent(event, res, storage);
   });
+
+  // Webhook event handler (extracted for reuse)
+  async function handleWebhookEvent(event: any, res: any, storage: IStorage) {
+    try {
+      if (event.type === 'payment_intent.succeeded') {
+        const paymentIntent = event.data.object as any;
+        const metadata = paymentIntent.metadata;
+
+        // Validate required metadata
+        if (!metadata.purchase_type || !metadata.user_id) {
+          console.error("Invalid webhook event: Missing required metadata");
+          return res.status(400).json({ error: "Invalid event metadata" });
+        }
+
+        // Check if this is a credit purchase
+        if (metadata.purchase_type === 'credits') {
+          const userId = metadata.user_id;
+          const tierId = metadata.tier_id;
+          const credits = parseInt(metadata.credits);
+
+          // Validate credits is a valid number
+          if (isNaN(credits) || credits <= 0) {
+            console.error(`Invalid credits amount: ${metadata.credits}`);
+            return res.status(400).json({ error: "Invalid credits amount" });
+          }
+
+          // Validate tier exists
+          if (tierId) {
+            const tier = await storage.getPricingTier(tierId);
+            if (!tier) {
+              console.error(`Invalid tier ID in webhook: ${tierId}`);
+              return res.status(400).json({ error: "Invalid tier" });
+            }
+            
+            // Verify credits amount matches tier
+            if (tier.credits !== credits) {
+              console.error(`Credits mismatch: expected ${tier.credits}, got ${credits}`);
+              return res.status(400).json({ error: "Credits amount mismatch" });
+            }
+          }
+
+          // Add credits to user account
+          await storage.addCredits(
+            userId,
+            credits,
+            'purchase',
+            `Purchased ${credits} credits`,
+            paymentIntent.id
+          );
+
+          console.log(`Credits added: ${credits} credits for user ${userId} (payment: ${paymentIntent.id})`);
+        }
+      }
+
+      res.json({ received: true });
+    } catch (error: any) {
+      console.error("Error handling webhook:", error);
+      res.status(500).json({ error: error.message || "Webhook handling failed" });
+    }
+  }
 
   // Booking routes
   app.get("/api/bookings", isAuthenticated, async (req: any, res) => {
@@ -520,10 +617,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.claims.sub;
 
-      const validatedData = insertBookingSchema.parse({
+      // Convert deliveryDate from ISO string to Date object before validation
+      const bookingData = {
         ...req.body,
         customerId: userId,
-      });
+        deliveryDate: new Date(req.body.deliveryDate),
+        packageCount: parseInt(req.body.packageCount),
+        totalPrice: req.body.totalPrice.toString(),
+      };
+
+      const validatedData = insertBookingSchema.parse(bookingData);
 
       // Critical: Verify guardian is verified before allowing booking
       const guardian = await storage.getGuardian(validatedData.guardianId);

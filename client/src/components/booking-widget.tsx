@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +33,14 @@ export function BookingWidget({ guardian }: BookingWidgetProps) {
     enabled: isAuthenticated,
   });
 
+  // Auto-select "Use Credits" when user has credits available
+  useEffect(() => {
+    const creditBalance = creditsData?.balance || 0;
+    if (creditBalance >= 1) {
+      setUseCredits(true);
+    }
+  }, [creditsData?.balance]);
+
   const createBookingMutation = useMutation({
     mutationFn: async () => {
       const totalPrice = Number(guardian.pricePerPackage) * packageCount;
@@ -50,6 +58,7 @@ export function BookingWidget({ guardian }: BookingWidgetProps) {
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/bookings"] });
       queryClient.invalidateQueries({ queryKey: ["/api/credits"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
       
       // Handle response based on payment method
       if (data.paymentMethod === 'credits') {
@@ -266,7 +275,7 @@ export function BookingWidget({ guardian }: BookingWidgetProps) {
             className="w-full"
             size="lg"
             disabled={createBookingMutation.isPending || !deliveryDate}
-            data-testid="button-request-booking"
+            data-testid="button-submit-booking"
           >
             {createBookingMutation.isPending
               ? "Processing..."
