@@ -1,0 +1,341 @@
+import {
+  users,
+  guardians,
+  bookings,
+  messages,
+  reviews,
+  packages,
+  type User,
+  type UpsertUser,
+  type Guardian,
+  type InsertGuardian,
+  type Booking,
+  type InsertBooking,
+  type Message,
+  type InsertMessage,
+  type Review,
+  type InsertReview,
+  type Package,
+  type InsertPackage,
+} from "@shared/schema";
+import { db } from "./db";
+import { eq, desc, and } from "drizzle-orm";
+
+export interface IStorage {
+  // User operations (required for Replit Auth)
+  getUser(id: string): Promise<User | undefined>;
+  upsertUser(user: UpsertUser): Promise<User>;
+  updateUserRole(id: string, role: string): Promise<User>;
+
+  // Guardian operations
+  getGuardian(id: string): Promise<any | undefined>;
+  getGuardianByUserId(userId: string): Promise<Guardian | undefined>;
+  getAllGuardians(): Promise<any[]>;
+  getPendingGuardians(): Promise<any[]>;
+  createGuardian(guardian: InsertGuardian): Promise<Guardian>;
+  updateGuardian(id: string, guardian: Partial<InsertGuardian>): Promise<Guardian>;
+
+  // Booking operations
+  getBooking(id: string): Promise<any | undefined>;
+  getBookingsByCustomer(customerId: string): Promise<any[]>;
+  getBookingsByGuardian(guardianId: string): Promise<any[]>;
+  createBooking(booking: InsertBooking): Promise<Booking>;
+  updateBooking(id: string, booking: Partial<InsertBooking>): Promise<Booking>;
+
+  // Message operations
+  getMessagesByBooking(bookingId: string): Promise<any[]>;
+  createMessage(message: InsertMessage): Promise<Message>;
+
+  // Review operations
+  getReviewsByGuardian(guardianId: string): Promise<any[]>;
+  getReviewByBooking(bookingId: string): Promise<Review | undefined>;
+  createReview(review: InsertReview): Promise<Review>;
+
+  // Package operations
+  getPackage(id: string): Promise<Package | undefined>;
+  getPackagesByBooking(bookingId: string): Promise<Package[]>;
+  getPackagesByGuardian(guardianId: string): Promise<Package[]>;
+  createPackage(pkg: InsertPackage): Promise<Package>;
+  updatePackage(id: string, pkg: Partial<InsertPackage>): Promise<Package>;
+}
+
+export class DatabaseStorage implements IStorage {
+  // User operations
+  async getUser(id: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          ...userData,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return user;
+  }
+
+  async updateUserRole(id: string, role: string): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set({ role, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return user;
+  }
+
+  // Guardian operations
+  async getGuardian(id: string): Promise<any | undefined> {
+    const [guardian] = await db
+      .select()
+      .from(guardians)
+      .leftJoin(users, eq(guardians.userId, users.id))
+      .where(eq(guardians.id, id));
+
+    if (!guardian) return undefined;
+
+    return {
+      ...guardian.guardians,
+      user: guardian.users,
+    };
+  }
+
+  async getGuardianByUserId(userId: string): Promise<Guardian | undefined> {
+    const [guardian] = await db
+      .select()
+      .from(guardians)
+      .where(eq(guardians.userId, userId));
+    return guardian;
+  }
+
+  async getAllGuardians(): Promise<any[]> {
+    const results = await db
+      .select()
+      .from(guardians)
+      .leftJoin(users, eq(guardians.userId, users.id))
+      .where(and(eq(guardians.isActive, true), eq(guardians.verificationStatus, 'verified')));
+
+    return results.map((row) => ({
+      ...row.guardians,
+      user: row.users,
+    }));
+  }
+
+  async getPendingGuardians(): Promise<any[]> {
+    const results = await db
+      .select()
+      .from(guardians)
+      .leftJoin(users, eq(guardians.userId, users.id))
+      .where(eq(guardians.verificationStatus, 'pending'))
+      .orderBy(desc(guardians.createdAt));
+
+    return results.map((row) => ({
+      ...row.guardians,
+      user: row.users,
+    }));
+  }
+
+  async createGuardian(guardianData: InsertGuardian): Promise<Guardian> {
+    const [guardian] = await db
+      .insert(guardians)
+      .values(guardianData)
+      .returning();
+    return guardian;
+  }
+
+  async updateGuardian(id: string, guardianData: Partial<InsertGuardian>): Promise<Guardian> {
+    const [guardian] = await db
+      .update(guardians)
+      .set({ ...guardianData, updatedAt: new Date() })
+      .where(eq(guardians.id, id))
+      .returning();
+    return guardian;
+  }
+
+  // Booking operations
+  async getBooking(id: string): Promise<any | undefined> {
+    const [booking] = await db
+      .select()
+      .from(bookings)
+      .leftJoin(guardians, eq(bookings.guardianId, guardians.id))
+      .leftJoin(users, eq(guardians.userId, users.id))
+      .where(eq(bookings.id, id));
+
+    if (!booking) return undefined;
+
+    return {
+      ...booking.bookings,
+      guardian: {
+        ...booking.guardians,
+        user: booking.users,
+      },
+    };
+  }
+
+  async getBookingsByCustomer(customerId: string): Promise<any[]> {
+    const results = await db
+      .select()
+      .from(bookings)
+      .leftJoin(guardians, eq(bookings.guardianId, guardians.id))
+      .leftJoin(users, eq(guardians.userId, users.id))
+      .where(eq(bookings.customerId, customerId))
+      .orderBy(desc(bookings.createdAt));
+
+    return results.map((row) => ({
+      ...row.bookings,
+      guardian: {
+        ...row.guardians,
+        user: row.users,
+      },
+    }));
+  }
+
+  async getBookingsByGuardian(guardianId: string): Promise<any[]> {
+    const results = await db
+      .select()
+      .from(bookings)
+      .leftJoin(users, eq(bookings.customerId, users.id))
+      .where(eq(bookings.guardianId, guardianId))
+      .orderBy(desc(bookings.createdAt));
+
+    return results.map((row) => ({
+      ...row.bookings,
+      customer: row.users,
+    }));
+  }
+
+  async createBooking(bookingData: InsertBooking): Promise<Booking> {
+    const [booking] = await db
+      .insert(bookings)
+      .values(bookingData)
+      .returning();
+    return booking;
+  }
+
+  async updateBooking(id: string, bookingData: Partial<InsertBooking>): Promise<Booking> {
+    const [booking] = await db
+      .update(bookings)
+      .set({ ...bookingData, updatedAt: new Date() })
+      .where(eq(bookings.id, id))
+      .returning();
+    return booking;
+  }
+
+  // Message operations
+  async getMessagesByBooking(bookingId: string): Promise<any[]> {
+    const results = await db
+      .select()
+      .from(messages)
+      .leftJoin(users, eq(messages.senderId, users.id))
+      .where(eq(messages.bookingId, bookingId))
+      .orderBy(messages.createdAt);
+
+    return results.map((row) => ({
+      ...row.messages,
+      sender: row.users,
+    }));
+  }
+
+  async createMessage(messageData: InsertMessage): Promise<Message> {
+    const [message] = await db
+      .insert(messages)
+      .values(messageData)
+      .returning();
+    return message;
+  }
+
+  // Review operations
+  async getReviewsByGuardian(guardianId: string): Promise<any[]> {
+    const results = await db
+      .select()
+      .from(reviews)
+      .leftJoin(users, eq(reviews.customerId, users.id))
+      .where(eq(reviews.guardianId, guardianId))
+      .orderBy(desc(reviews.createdAt));
+
+    return results.map((row) => ({
+      ...row.reviews,
+      customer: row.users,
+    }));
+  }
+
+  async getReviewByBooking(bookingId: string): Promise<Review | undefined> {
+    const [review] = await db
+      .select()
+      .from(reviews)
+      .where(eq(reviews.bookingId, bookingId));
+    return review;
+  }
+
+  async createReview(reviewData: InsertReview): Promise<Review> {
+    const [review] = await db
+      .insert(reviews)
+      .values(reviewData)
+      .returning();
+
+    // Update guardian's average rating
+    const allReviews = await db
+      .select()
+      .from(reviews)
+      .where(eq(reviews.guardianId, reviewData.guardianId));
+
+    const avgRating = allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length;
+
+    await db
+      .update(guardians)
+      .set({ averageRating: avgRating.toFixed(2) })
+      .where(eq(guardians.id, reviewData.guardianId));
+
+    return review;
+  }
+
+  // Package operations
+  async getPackage(id: string): Promise<Package | undefined> {
+    const [pkg] = await db
+      .select()
+      .from(packages)
+      .where(eq(packages.id, id));
+    return pkg;
+  }
+
+  async getPackagesByBooking(bookingId: string): Promise<Package[]> {
+    return await db
+      .select()
+      .from(packages)
+      .where(eq(packages.bookingId, bookingId))
+      .orderBy(desc(packages.createdAt));
+  }
+
+  async getPackagesByGuardian(guardianId: string): Promise<Package[]> {
+    return await db
+      .select()
+      .from(packages)
+      .where(eq(packages.guardianId, guardianId))
+      .orderBy(desc(packages.createdAt));
+  }
+
+  async createPackage(packageData: InsertPackage): Promise<Package> {
+    const [pkg] = await db
+      .insert(packages)
+      .values(packageData)
+      .returning();
+    return pkg;
+  }
+
+  async updatePackage(id: string, packageData: Partial<InsertPackage>): Promise<Package> {
+    const [pkg] = await db
+      .update(packages)
+      .set(packageData)
+      .where(eq(packages.id, id))
+      .returning();
+    return pkg;
+  }
+}
+
+export const storage = new DatabaseStorage();
