@@ -528,11 +528,17 @@ function CustomerBookingCard({
 }
 
 // ===== GUARDIAN DASHBOARD VIEW =====
-function GuardianDashboardView({ guardianProfile }: { guardianProfile?: GuardianWithUser }) {
+function GuardianDashboardView() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [location] = useLocation();
   const searchParams = new URLSearchParams(location.split('?')[1]);
+
+  // Fetch guardian profile for current user
+  const { data: guardianProfile, isLoading: loadingProfile } = useQuery<GuardianWithUser>({
+    queryKey: ["/api/guardians/by-user"],
+    retry: false,
+  });
 
   const { data: connectStatus, refetch: refetchConnectStatus } = useQuery<{
     hasAccount: boolean;
@@ -605,6 +611,22 @@ function GuardianDashboardView({ guardianProfile }: { guardianProfile?: Guardian
       window.history.replaceState({}, '', '/dashboard?role=guardian');
     }
   }, [searchParams, refetchConnectStatus, toast]);
+
+  if (loadingProfile) {
+    return (
+      <div className="flex items-center justify-center py-12" data-testid="guardian-dashboard-view">
+        <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
+  if (!guardianProfile) {
+    return (
+      <div className="text-center py-12" data-testid="guardian-dashboard-view">
+        <p className="text-muted-foreground">Guardian profile not found. Please complete your guardian application.</p>
+      </div>
+    );
+  }
 
   return (
     <div data-testid="guardian-dashboard-view">

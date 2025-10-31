@@ -41,7 +41,7 @@ export default function BecomeGuardian() {
 
   const createGuardianMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", "/api/guardians", {
+      const response = await apiRequest("POST", "/api/guardians", {
         userId: user?.id,
         bio,
         address,
@@ -52,15 +52,28 @@ export default function BecomeGuardian() {
         maxPackages,
         isActive: true,
       });
+      return response.json();
     },
-    onSuccess: () => {
+    onSuccess: async (createdGuardian) => {
+      // Set the guardian data in the cache immediately to avoid 404
+      queryClient.setQueryData(["/api/guardians/by-user"], createdGuardian);
+      
+      // Invalidate all guardian-related queries to refetch later
       queryClient.invalidateQueries({ queryKey: ["/api/guardians"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/guardians/by-user"] });
+      
+      // CRITICAL: Invalidate auth user to refresh availableRoles
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      
       toast({
         title: "Success!",
         description: "You're now a Porchguardian! Customers can now find you.",
       });
-      navigate("/dashboard");
+      
+      // Small delay to ensure database transaction is committed
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Redirect to guardian dashboard with explicit role parameter
+      navigate("/dashboard?role=guardian");
     },
     onError: (error: Error) => {
       if (isUnauthorizedError(error)) {
