@@ -28,6 +28,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check if user has a guardian profile
       const guardianProfile = await storage.getGuardianByUserId(userId);
       
+      // Check if user has credits record, if not ensure it exists
+      let credits = await storage.getUserCredits(userId);
+      if (!credits) {
+        // New user - create credits record and grant 1 free credit
+        credits = await storage.ensureUserCredits(userId);
+        await storage.addCredits(
+          userId,
+          1,
+          'admin_grant',
+          'Welcome bonus - 1 free package hold',
+        );
+        credits = await storage.getUserCredits(userId);
+      }
+      
       // Calculate available roles
       const availableRoles: string[] = ['customer']; // Everyone can be a customer
       
@@ -46,6 +60,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: guardianProfile.id,
           verificationStatus: guardianProfile.verificationStatus,
           isActive: guardianProfile.isActive,
+        } : null,
+        credits: credits ? {
+          balance: credits.balance,
+          lifetimeEarned: credits.lifetimeEarned,
+          lifetimeSpent: credits.lifetimeSpent,
         } : null,
       });
     } catch (error) {
