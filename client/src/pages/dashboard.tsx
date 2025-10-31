@@ -22,8 +22,14 @@ import {
   CheckCircle2,
   Edit,
   Plus,
+  Coins,
+  TrendingUp,
+  TrendingDown,
+  Gift,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
-import type { Booking, Guardian, User, PricingTier } from "@shared/schema";
+import type { Booking, Guardian, User, PricingTier, CreditTransaction } from "@shared/schema";
 import {
   Dialog,
   DialogContent,
@@ -50,10 +56,12 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertPricingTierSchema } from "@shared/schema";
 import { z } from "zod";
+import { format } from "date-fns";
 
 type BookingWithDetails = Booking & {
   guardian: Guardian & { user: User };
@@ -286,6 +294,15 @@ function CustomerDashboardView() {
     queryKey: ["/api/bookings"],
   });
 
+  const { data: creditsData, isLoading: creditsLoading } = useQuery<{
+    balance: number;
+    lifetimeEarned: number;
+    lifetimeSpent: number;
+    transactions: CreditTransaction[];
+  }>({
+    queryKey: ["/api/credits"],
+  });
+
   const confirmPickupMutation = useMutation({
     mutationFn: async (bookingId: string) => {
       const response = await apiRequest("POST", `/api/bookings/${bookingId}/confirm-pickup`);
@@ -326,6 +343,11 @@ function CustomerDashboardView() {
           </Button>
         </Link>
       </div>
+
+      <CreditBalanceSection 
+        creditsData={creditsData} 
+        isLoading={creditsLoading} 
+      />
 
       <Tabs defaultValue="all" className="space-y-6">
         <TabsList>
@@ -555,6 +577,220 @@ function CustomerBookingCard({
         open={showReviewModal}
         onOpenChange={setShowReviewModal}
       />
+    </Card>
+  );
+}
+
+// ===== CREDIT BALANCE SECTION =====
+function CreditBalanceSection({ 
+  creditsData, 
+  isLoading 
+}: { 
+  creditsData: {
+    balance: number;
+    lifetimeEarned: number;
+    lifetimeSpent: number;
+    transactions: CreditTransaction[];
+  } | undefined;
+  isLoading: boolean;
+}) {
+  const [isTransactionsOpen, setIsTransactionsOpen] = useState(false);
+
+  if (isLoading) {
+    return (
+      <Card className="mb-8" data-testid="card-credits">
+        <CardContent className="p-8">
+          <div className="flex items-center justify-center">
+            <div className="animate-spin h-6 w-6 border-4 border-primary border-t-transparent rounded-full" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const balance = creditsData?.balance ?? 0;
+  const lifetimeEarned = creditsData?.lifetimeEarned ?? 0;
+  const lifetimeSpent = creditsData?.lifetimeSpent ?? 0;
+  const transactions = creditsData?.transactions ?? [];
+  const recentTransactions = transactions.slice(0, 5);
+
+  const getTransactionTypeLabel = (type: string) => {
+    switch (type) {
+      case 'purchase':
+        return 'Purchase';
+      case 'booking_deduction':
+        return 'Booking';
+      case 'refund':
+        return 'Refund';
+      case 'admin_grant':
+        return 'Welcome Bonus';
+      default:
+        return type;
+    }
+  };
+
+  const getTransactionIcon = (type: string) => {
+    switch (type) {
+      case 'purchase':
+        return <DollarSign className="h-4 w-4" />;
+      case 'booking_deduction':
+        return <Package className="h-4 w-4" />;
+      case 'refund':
+        return <TrendingUp className="h-4 w-4" />;
+      case 'admin_grant':
+        return <Gift className="h-4 w-4" />;
+      default:
+        return <Coins className="h-4 w-4" />;
+    }
+  };
+
+  return (
+    <Card className="mb-8" data-testid="card-credits">
+      <CardHeader>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center h-12 w-12 rounded-full bg-primary/10">
+              <Coins className="h-6 w-6 text-primary" />
+            </div>
+            <div>
+              <CardTitle>Your Credits</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Use credits to book guardians for free
+              </p>
+            </div>
+          </div>
+          <Link href="/buy-credits">
+            <Button data-testid="button-buy-credits">
+              <Plus className="mr-2 h-4 w-4" />
+              Buy More Credits
+            </Button>
+          </Link>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {balance === 0 ? (
+          <div className="text-center py-8">
+            <Coins className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-xl font-semibold mb-2">Get started with your free credit</h3>
+            <p className="text-muted-foreground mb-6">
+              Purchase credits to book guardians without payment each time
+            </p>
+            <Link href="/buy-credits">
+              <Button size="lg" data-testid="button-buy-credits-empty">
+                <Plus className="mr-2 h-4 w-4" />
+                Buy Credits Now
+              </Button>
+            </Link>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="text-center p-6 rounded-md bg-muted/50">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <Coins className="h-5 w-5 text-primary" />
+                  <span className="text-sm font-medium text-muted-foreground">Current Balance</span>
+                </div>
+                <p className="text-4xl font-semibold" data-testid="text-credit-balance">
+                  {balance}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {balance === 1 ? 'Credit' : 'Credits'}
+                </p>
+              </div>
+
+              <div className="text-center p-6 rounded-md bg-muted/50">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <TrendingUp className="h-5 w-5 text-green-600" />
+                  <span className="text-sm font-medium text-muted-foreground">Earned</span>
+                </div>
+                <p className="text-4xl font-semibold text-green-600" data-testid="text-credits-earned">
+                  {lifetimeEarned}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {lifetimeEarned === 1 ? 'Credit' : 'Credits'}
+                </p>
+              </div>
+
+              <div className="text-center p-6 rounded-md bg-muted/50">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <TrendingDown className="h-5 w-5 text-red-600" />
+                  <span className="text-sm font-medium text-muted-foreground">Spent</span>
+                </div>
+                <p className="text-4xl font-semibold text-red-600" data-testid="text-credits-spent">
+                  {lifetimeSpent}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {lifetimeSpent === 1 ? 'Credit' : 'Credits'}
+                </p>
+              </div>
+            </div>
+
+            {transactions.length > 0 && (
+              <Collapsible open={isTransactionsOpen} onOpenChange={setIsTransactionsOpen}>
+                <CollapsibleTrigger className="flex items-center justify-between w-full p-4 rounded-md hover-elevate" data-testid="button-toggle-transactions">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5 text-muted-foreground" />
+                    <span className="font-semibold">Recent Credit Transactions</span>
+                    <Badge variant="outline">{transactions.length}</Badge>
+                  </div>
+                  {isTransactionsOpen ? (
+                    <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                  )}
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-4">
+                  <div className="space-y-3">
+                    {recentTransactions.map((transaction) => (
+                      <div
+                        key={transaction.id}
+                        className="flex items-center justify-between p-4 rounded-md border"
+                        data-testid={`transaction-${transaction.id}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`flex items-center justify-center h-10 w-10 rounded-full ${
+                            transaction.amount > 0 ? 'bg-green-100' : 'bg-red-100'
+                          }`}>
+                            {getTransactionIcon(transaction.type)}
+                          </div>
+                          <div>
+                            <p className="font-medium">
+                              {getTransactionTypeLabel(transaction.type)}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {transaction.description}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {transaction.createdAt && format(new Date(transaction.createdAt), 'MMM d, yyyy h:mm a')}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className={`text-lg font-semibold ${
+                            transaction.amount > 0 ? 'text-green-600' : 'text-red-600'
+                          }`}>
+                            {transaction.amount > 0 ? '+' : ''}{transaction.amount}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Balance: {transaction.balanceAfter}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                    {transactions.length > 5 && (
+                      <div className="text-center pt-2">
+                        <p className="text-sm text-muted-foreground">
+                          Showing {recentTransactions.length} of {transactions.length} transactions
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+          </>
+        )}
+      </CardContent>
     </Card>
   );
 }

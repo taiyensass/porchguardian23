@@ -538,8 +538,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const booking = await storage.createBooking(validatedData);
-      res.status(201).json(booking);
+      // Check if user wants to pay with credits
+      const userCredits = await storage.getUserCredits(userId);
+      const useCredits = req.body.useCredits === true;
+      const hasCredits = userCredits && userCredits.balance >= 1;
+
+      let booking;
+      let paymentMethod: 'credits' | 'stripe' = 'stripe';
+
+      if (useCredits && hasCredits) {
+        // Payment with credits
+        paymentMethod = 'credits';
+        
+        // Get guardian payout from first active pricing tier, or default to $4
+        const activeTiers = await storage.getActivePricingTiers();
+        const guardianPayoutPerCredit = activeTiers.length > 0
+          ? parseFloat(activeTiers[0].guardianPayoutPerCredit)
+          : 4.00;
+
+        // Create booking with credit payment first
+        booking = await storage.createBooking({
+          ...validatedData,
+          paymentMethod: 'credits',
+          creditsUsed: 1,
+          paymentStatus: 'released',
+          guardianPayout: guardianPayoutPerCredit.toFixed(2),
+          platformFee: (parseFloat(validatedData.totalPrice) - guardianPayoutPerCredit).toFixed(2),
+        });
+
+        // Now deduct 1 credit from user with the booking ID
+        await storage.deductCredits(
+          userId,
+          1,
+          booking.id,
+          'Package hold booking - 1 credit'
+        );
+
+        res.status(201).json({
+          success: true,
+          paymentMethod: 'credits',
+          booking,
+        });
+      } else {
+        // Payment with Stripe (existing flow)
+        paymentMethod = 'stripe';
+        
+        // Calculate guardian payout (85% of total, platform keeps 15%)
+        const totalPrice = parseFloat(validatedData.totalPrice);
+        const guardianPayout = totalPrice * 0.85;
+        const platformFee = totalPrice * PLATFORM_FEE_PERCENTAGE;
+
+        booking = await storage.createBooking({
+          ...validatedData,
+          paymentMethod: 'stripe',
+          paymentStatus: 'held',
+          guardianPayout: guardianPayout.toFixed(2),
+          platformFee: platformFee.toFixed(2),
+        });
+
+        res.status(201).json({
+          success: true,
+          paymentMethod: 'stripe',
+          booking,
+        });
+      }
     } catch (error: any) {
       console.error("Error creating booking:", error);
       res.status(400).json({ message: error.message || "Failed to create booking" });

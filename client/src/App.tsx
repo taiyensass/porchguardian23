@@ -9,6 +9,7 @@ import Guardians from "@/pages/guardians";
 import GuardianProfile from "@/pages/guardian-profile";
 import Dashboard from "@/pages/dashboard";
 import BecomeGuardian from "@/pages/become-guardian";
+import BuyCredits from "@/pages/buy-credits";
 import Checkout from "@/pages/checkout";
 import PaymentSuccess from "@/pages/payment-success";
 import NotFound from "@/pages/not-found";
@@ -26,6 +27,7 @@ function Router() {
       {/* Protected routes */}
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/become-guardian" component={BecomeGuardian} />
+      <Route path="/buy-credits" component={BuyCredits} />
       <Route path="/checkout/:bookingId" component={Checkout} />
       <Route path="/payment-success" component={PaymentSuccess} />
       
