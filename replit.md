@@ -59,25 +59,33 @@ Key entities:
 - **Users**: Core user table required by Replit Auth (id, email, role, profile data)
 - **Sessions**: Session storage for authentication
 - **Guardians**: Extended profile for users accepting packages (address, pricing, availability)
-- **Bookings**: Package delivery requests (customer, guardian, dates, status, pricing)
+- **Bookings**: Package delivery requests (customer, guardian, dates, status, pricing, payment method, credits_used)
 - **Packages**: Individual package tracking within bookings
 - **Messages**: Communication between customers and guardians per booking
 - **Reviews**: Post-booking feedback and ratings
+- **UserCredits**: Credit balance and lifetime stats per user (balance, lifetimeEarned, lifetimeSpent)
+- **CreditTransactions**: Audit log of all credit operations (type: purchase/admin_grant/booking_deduction)
+- **PricingTiers**: Admin-configurable credit bundles (credits, priceUsd, guardianPayoutPerCredit, isActive)
 
 Relationships:
-- One-to-one: User → Guardian (optional)
+- One-to-one: User → Guardian (optional), User → UserCredits
 - One-to-many: Guardian → Bookings, User (as customer) → Bookings
 - One-to-many: Booking → Messages, Booking → Packages, Guardian → Reviews
+- One-to-many: User → CreditTransactions
 
 **API Design**
 RESTful endpoints organized by resource:
-- `/api/auth/*` - Authentication (login, logout, user session with availableRoles)
+- `/api/auth/*` - Authentication (login, logout, user session with availableRoles and credits)
 - `/api/guardians/*` - Guardian profiles and discovery
-- `/api/admin/*` - Admin-only routes (guardian approval, metrics, user management)
-- `/api/bookings/*` - Booking lifecycle management
+- `/api/admin/*` - Admin-only routes (guardian approval, metrics, user management, pricing tiers)
+- `/api/bookings/*` - Booking lifecycle management (supports credit-based and Stripe payments)
 - `/api/messages/*` - Booking-related messaging
 - `/api/reviews/*` - Review submission and retrieval
 - `/api/packages/*` - Package tracking updates
+- `/api/credits` - User credit balance and transaction history
+- `/api/purchase-credits` - Create Stripe Payment Intent for credit purchase
+- `/api/stripe-webhook` - Stripe webhook handler with signature verification for credit fulfillment
+- `/api/admin/pricing-tiers/*` - Admin-only pricing tier management (CRUD operations)
 
 All API routes use JSON request/response format with credential-based sessions.
 
@@ -99,7 +107,44 @@ All API routes use JSON request/response format with credential-based sessions.
   3. On pickup confirmation, automatic transfer to guardian's connected account
   4. If transfer fails: payment remains held, booking flagged for admin review
   5. If capture fails: booking status rolled back, payment remains authorized, admin review flagged
-- Environment variables: `STRIPE_SECRET_KEY`, `VITE_STRIPE_PUBLIC_KEY`, `TESTING_STRIPE_SECRET_KEY`, `TESTING_VITE_STRIPE_PUBLIC_KEY`
+- Environment variables: `STRIPE_SECRET_KEY`, `VITE_STRIPE_PUBLIC_KEY`, `TESTING_STRIPE_SECRET_KEY`, `TESTING_VITE_STRIPE_PUBLIC_KEY`, `STRIPE_WEBHOOK_SECRET` (optional, for webhook signature verification)
+
+### Credit System
+
+**Prepaid Credit Architecture**
+- Users can purchase credits in bundles to pay for package holds upfront
+- Credits take priority over Stripe payment when booking guardians
+- First credit is free (auto-granted as welcome bonus on first login)
+- All transactions logged with full audit trail in credit_transactions table
+
+**Credit Flow**
+1. **Welcome Bonus**: New users receive 1 free credit automatically on first login
+2. **Credit Purchase**: Users buy credit bundles via Stripe checkout (/buy-credits page)
+   - Payment Intent created with metadata (tier_id, user_id, credits, purchase_type)
+   - Stripe webhook (/api/stripe-webhook) fulfills credits after payment success
+   - Webhook verifies signature and validates tier/metadata before granting credits
+3. **Booking with Credits**: When booking a guardian, credit payment auto-selected if balance >= 1
+   - Backend deducts 1 credit and creates booking with payment_method='credits'
+   - Booking status set to 'released' (no Stripe escrow needed)
+   - Guardian receives fixed payout per credit (admin-configurable)
+4. **Fallback to Stripe**: If no credits available, booking uses standard Stripe escrow flow
+
+**Pricing Tiers**
+- Admin-configured credit bundles with flexible pricing
+- Each tier specifies: credits, priceUsd, guardianPayoutPerCredit, isActive
+- Platform profit/loss = (priceUsd / credits) - guardianPayoutPerCredit
+- Example tiers: $10/3 credits, $20/7 credits, $35/15 credits
+- Admins can adjust guardian payouts to change platform economics
+
+**Security**
+- Stripe webhook signature verification with `STRIPE_WEBHOOK_SECRET`
+- Webhook validates tier existence and credits amount match
+- Development mode allows webhook without secret (with warning log)
+- Raw body middleware for signature verification
+
+**Cache Invalidation**
+- After credit transactions, invalidate: /api/credits, /api/auth/user, /api/bookings
+- Ensures credit balance updates across dashboard, booking widget, buy-credits page
 
 ### Routing & Page Structure
 
@@ -113,6 +158,7 @@ All API routes use JSON request/response format with credential-based sessions.
 - `/become-guardian` - Guardian application form
 - `/checkout/:bookingId` - Stripe payment interface
 - `/payment-success` - Post-payment confirmation
+- `/buy-credits` - Credit purchase page with pricing tiers and Stripe checkout
 
 **Authentication Flow**
 - Unauthenticated users redirected to `/api/login` (Replit Auth)
