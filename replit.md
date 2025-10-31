@@ -71,8 +71,9 @@ Relationships:
 
 **API Design**
 RESTful endpoints organized by resource:
-- `/api/auth/*` - Authentication (login, logout, user session)
+- `/api/auth/*` - Authentication (login, logout, user session with availableRoles)
 - `/api/guardians/*` - Guardian profiles and discovery
+- `/api/admin/*` - Admin-only routes (guardian approval, metrics, user management)
 - `/api/bookings/*` - Booking lifecycle management
 - `/api/messages/*` - Booking-related messaging
 - `/api/reviews/*` - Review submission and retrieval
@@ -117,6 +118,37 @@ All API routes use JSON request/response format with credential-based sessions.
 - Unauthenticated users redirected to `/api/login` (Replit Auth)
 - After login, OAuth redirects back to application with session
 - Session validated on protected routes, 401 triggers re-login
+
+### Role-Based Dashboard System
+
+**Dashboard Architecture**
+- DashboardLayout component with RoleSwitcher for seamless role transitions
+- Role selection priority: URL param (?role=) > localStorage > admin > guardian > customer
+- Backend-driven availableRoles calculated from user.role and guardian profile existence
+- Each role displays different dashboard views: CustomerDashboardView, GuardianDashboardView, AdminDashboardView
+
+**Admin Dashboard**
+- Guardian approval queue with approve/reject actions
+- Platform metrics: total guardians, active bookings, total users
+- User management tools with role assignment
+- All admin routes secured with isAdmin middleware
+
+**Guardian Application Flow**
+- POST /api/guardians creates guardian profile with verificationStatus='pending'
+- Optimistic cache update pattern prevents race conditions:
+  1. Guardian creation returns created guardian object
+  2. Immediately cache guardian data: `queryClient.setQueryData(["/api/guardians/by-user"], createdGuardian)`
+  3. Invalidate /api/auth/user to refresh availableRoles
+  4. 100ms delay before redirect ensures database commit
+  5. Redirect to /dashboard?role=guardian
+- GuardianDashboardView self-fetches guardian profile with loading states
+- Pending guardians see "Pending Approval" status badge and payout setup guidance
+- After admin approval, guardians can complete Stripe Connect onboarding
+
+**Cache Strategy**
+- Optimistic updates for guardian creation to avoid 404 on immediate navigation
+- Background refetch reconciles cached data with database state
+- Invalidation cascades: guardian changes invalidate auth user's availableRoles
 
 ## External Dependencies
 
