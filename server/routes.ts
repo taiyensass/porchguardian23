@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import Stripe from "stripe";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated, isAdmin } from "./replitAuth";
-import { insertGuardianSchema, insertBookingSchema, insertMessageSchema, insertReviewSchema, insertPackageSchema } from "@shared/schema";
+import { insertGuardianSchema, insertBookingSchema, insertMessageSchema, insertReviewSchema, insertPackageSchema, insertPricingTierSchema } from "@shared/schema";
 
 if (!process.env.STRIPE_SECRET_KEY) {
   throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
@@ -339,6 +339,131 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error fetching admin bookings:", error);
       res.status(500).json({ message: "Failed to fetch bookings" });
     }
+  });
+
+  // Credit Management Routes
+  
+  // Get current user's credit balance and transaction history
+  app.get("/api/credits", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      // Ensure user has a credit record
+      const userCredits = await storage.ensureUserCredits(userId);
+      const transactions = await storage.getCreditTransactions(userId);
+      
+      res.json({
+        balance: userCredits.balance,
+        lifetimeEarned: userCredits.lifetimeEarned,
+        lifetimeSpent: userCredits.lifetimeSpent,
+        transactions,
+      });
+    } catch (error) {
+      console.error("Error fetching credits:", error);
+      res.status(500).json({ message: "Failed to fetch credits" });
+    }
+  });
+
+  // Get active pricing tiers for credit purchase
+  app.get("/api/pricing-tiers", async (req, res) => {
+    try {
+      const tiers = await storage.getActivePricingTiers();
+      res.json(tiers);
+    } catch (error) {
+      console.error("Error fetching pricing tiers:", error);
+      res.status(500).json({ message: "Failed to fetch pricing tiers" });
+    }
+  });
+
+  // Admin Pricing Tier Routes
+  
+  // Get all pricing tiers (including inactive)
+  app.get("/api/admin/pricing-tiers", isAdmin, async (req, res) => {
+    try {
+      const tiers = await storage.getPricingTiers();
+      res.json(tiers);
+    } catch (error) {
+      console.error("Error fetching pricing tiers:", error);
+      res.status(500).json({ message: "Failed to fetch pricing tiers" });
+    }
+  });
+
+  // Create new pricing tier
+  app.post("/api/admin/pricing-tiers", isAdmin, async (req, res) => {
+    try {
+      const validatedData = insertPricingTierSchema.parse(req.body);
+      const tier = await storage.createPricingTier(validatedData);
+      res.status(201).json(tier);
+    } catch (error: any) {
+      console.error("Error creating pricing tier:", error);
+      res.status(400).json({ message: error.message || "Failed to create pricing tier" });
+    }
+  });
+
+  // Update pricing tier
+  app.patch("/api/admin/pricing-tiers/:id", isAdmin, async (req, res) => {
+    try {
+      const tier = await storage.getPricingTier(req.params.id);
+      
+      if (!tier) {
+        return res.status(404).json({ message: "Pricing tier not found" });
+      }
+
+      const updated = await storage.updatePricingTier(req.params.id, req.body);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating pricing tier:", error);
+      res.status(400).json({ message: error.message || "Failed to update pricing tier" });
+    }
+  });
+
+  // Credit Purchase Route
+  
+  // Create Stripe payment intent for credit purchase
+  app.post("/api/purchase-credits", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { tierId } = req.body;
+
+      if (!tierId) {
+        return res.status(400).json({ message: "tierId is required" });
+      }
+
+      // Validate tier exists and is active
+      const tier = await storage.getPricingTier(tierId);
+      
+      if (!tier) {
+        return res.status(404).json({ message: "Pricing tier not found" });
+      }
+
+      if (!tier.isActive) {
+        return res.status(400).json({ message: "This pricing tier is no longer available" });
+      }
+
+      // Create payment intent for credit purchase
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(parseFloat(tier.priceUsd) * 100), // Convert to cents
+        currency: "usd",
+        metadata: {
+          tier_id: tier.id,
+          user_id: userId,
+          credits: tier.credits.toString(),
+          purchase_type: 'credits',
+        },
+      });
+
+      res.json({ clientSecret: paymentIntent.client_secret });
+    } catch (error: any) {
+      console.error("Error creating credit purchase payment intent:", error);
+      res.status(500).json({ message: error.message || "Failed to create payment intent" });
+    }
+  });
+
+  // Credit Purchase Confirmation Webhook (placeholder)
+  app.post("/api/stripe-webhook", async (req, res) => {
+    // TODO: Implement Stripe webhook handler for credit purchase confirmation
+    // This will be implemented separately with proper signature verification
+    res.status(501).json({ message: "Webhook handler not yet implemented" });
   });
 
   // Booking routes

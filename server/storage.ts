@@ -5,6 +5,9 @@ import {
   messages,
   reviews,
   packages,
+  userCredits,
+  creditTransactions,
+  pricingTiers,
   type User,
   type UpsertUser,
   type Guardian,
@@ -17,6 +20,12 @@ import {
   type InsertReview,
   type Package,
   type InsertPackage,
+  type UserCredits,
+  type InsertUserCredits,
+  type CreditTransaction,
+  type InsertCreditTransaction,
+  type PricingTier,
+  type InsertPricingTier,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
@@ -61,6 +70,20 @@ export interface IStorage {
   getPackagesByGuardian(guardianId: string): Promise<Package[]>;
   createPackage(pkg: InsertPackage): Promise<Package>;
   updatePackage(id: string, pkg: Partial<InsertPackage>): Promise<Package>;
+
+  // Credit operations
+  getUserCredits(userId: string): Promise<UserCredits | undefined>;
+  ensureUserCredits(userId: string): Promise<UserCredits>;
+  addCredits(userId: string, amount: number, type: string, description: string, stripePaymentIntentId?: string): Promise<UserCredits>;
+  deductCredits(userId: string, amount: number, bookingId: string, description: string): Promise<UserCredits>;
+  getCreditTransactions(userId: string): Promise<CreditTransaction[]>;
+
+  // Pricing tier operations
+  getPricingTiers(): Promise<PricingTier[]>;
+  getActivePricingTiers(): Promise<PricingTier[]>;
+  getPricingTier(id: string): Promise<PricingTier | undefined>;
+  createPricingTier(tier: InsertPricingTier): Promise<PricingTier>;
+  updatePricingTier(id: string, tier: Partial<InsertPricingTier>): Promise<PricingTier>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -370,6 +393,146 @@ export class DatabaseStorage implements IStorage {
       .where(eq(packages.id, id))
       .returning();
     return pkg;
+  }
+
+  // Credit operations
+  async getUserCredits(userId: string): Promise<UserCredits | undefined> {
+    const [credits] = await db
+      .select()
+      .from(userCredits)
+      .where(eq(userCredits.userId, userId));
+    return credits;
+  }
+
+  async ensureUserCredits(userId: string): Promise<UserCredits> {
+    const existing = await this.getUserCredits(userId);
+    if (existing) return existing;
+
+    const [credits] = await db
+      .insert(userCredits)
+      .values({ userId, balance: 0, lifetimeEarned: 0, lifetimeSpent: 0 })
+      .returning();
+    return credits;
+  }
+
+  async addCredits(
+    userId: string,
+    amount: number,
+    type: string,
+    description: string,
+    stripePaymentIntentId?: string
+  ): Promise<UserCredits> {
+    const credits = await this.ensureUserCredits(userId);
+    
+    const newBalance = credits.balance + amount;
+    const newLifetimeEarned = credits.lifetimeEarned + amount;
+
+    const [updatedCredits] = await db
+      .update(userCredits)
+      .set({
+        balance: newBalance,
+        lifetimeEarned: newLifetimeEarned,
+        updatedAt: new Date(),
+      })
+      .where(eq(userCredits.userId, userId))
+      .returning();
+
+    await db.insert(creditTransactions).values({
+      userId,
+      type,
+      amount,
+      balanceAfter: newBalance,
+      description,
+      stripePaymentIntentId,
+    });
+
+    return updatedCredits;
+  }
+
+  async deductCredits(
+    userId: string,
+    amount: number,
+    bookingId: string,
+    description: string
+  ): Promise<UserCredits> {
+    const credits = await this.ensureUserCredits(userId);
+    
+    if (credits.balance < amount) {
+      throw new Error('Insufficient credits');
+    }
+
+    const newBalance = credits.balance - amount;
+    const newLifetimeSpent = credits.lifetimeSpent + amount;
+
+    const [updatedCredits] = await db
+      .update(userCredits)
+      .set({
+        balance: newBalance,
+        lifetimeSpent: newLifetimeSpent,
+        updatedAt: new Date(),
+      })
+      .where(eq(userCredits.userId, userId))
+      .returning();
+
+    await db.insert(creditTransactions).values({
+      userId,
+      type: 'booking_deduction',
+      amount: -amount,
+      balanceAfter: newBalance,
+      description,
+      bookingId,
+    });
+
+    return updatedCredits;
+  }
+
+  async getCreditTransactions(userId: string): Promise<CreditTransaction[]> {
+    return await db
+      .select()
+      .from(creditTransactions)
+      .where(eq(creditTransactions.userId, userId))
+      .orderBy(desc(creditTransactions.createdAt));
+  }
+
+  // Pricing tier operations
+  async getPricingTiers(): Promise<PricingTier[]> {
+    return await db
+      .select()
+      .from(pricingTiers)
+      .orderBy(pricingTiers.displayOrder);
+  }
+
+  async getActivePricingTiers(): Promise<PricingTier[]> {
+    return await db
+      .select()
+      .from(pricingTiers)
+      .where(eq(pricingTiers.isActive, true))
+      .orderBy(pricingTiers.displayOrder);
+  }
+
+  async getPricingTier(id: string): Promise<PricingTier | undefined> {
+    const [tier] = await db
+      .select()
+      .from(pricingTiers)
+      .where(eq(pricingTiers.id, id));
+    return tier;
+  }
+
+  async createPricingTier(tierData: InsertPricingTier): Promise<PricingTier> {
+    const [tier] = await db
+      .insert(pricingTiers)
+      .values(tierData)
+      .returning();
+    return tier;
+  }
+
+  async updatePricingTier(id: string, tierData: Partial<InsertPricingTier>): Promise<PricingTier> {
+    const [tier] = await db
+      .update(pricingTiers)
+      .set({ ...tierData, updatedAt: new Date() })
+      .where(eq(pricingTiers.id, id))
+      .returning();
+    return tier;
   }
 }
 

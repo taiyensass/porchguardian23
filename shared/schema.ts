@@ -101,7 +101,9 @@ export const bookings = pgTable("bookings", {
   packageDetails: text("package_details"),
   specialInstructions: text("special_instructions"),
   status: varchar("status").notNull().default("pending"), // pending, confirmed, in_progress, completed, cancelled
+  paymentMethod: varchar("payment_method").notNull().default("stripe"), // stripe, credits
   paymentStatus: varchar("payment_status").notNull().default("held"), // held, released, refunded
+  creditsUsed: integer("credits_used").default(0),
   totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
   platformFee: decimal("platform_fee", { precision: 10, scale: 2 }),
   guardianPayout: decimal("guardian_payout", { precision: 10, scale: 2 }),
@@ -163,6 +165,87 @@ export const insertMessageSchema = createInsertSchema(messages).omit({
 
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
 export type Message = typeof messages.$inferSelect;
+
+// User credit balances
+export const userCredits = pgTable("user_credits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }).unique(),
+  balance: integer("balance").notNull().default(0),
+  lifetimeEarned: integer("lifetime_earned").notNull().default(0),
+  lifetimeSpent: integer("lifetime_spent").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const userCreditsRelations = relations(userCredits, ({ one }) => ({
+  user: one(users, {
+    fields: [userCredits.userId],
+    references: [users.id],
+  }),
+}));
+
+export const insertUserCreditsSchema = createInsertSchema(userCredits).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertUserCredits = z.infer<typeof insertUserCreditsSchema>;
+export type UserCredits = typeof userCredits.$inferSelect;
+
+// Credit transactions (purchases and usage)
+export const creditTransactions = pgTable("credit_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  type: varchar("type").notNull(), // purchase, booking_deduction, refund, admin_grant
+  amount: integer("amount").notNull(), // positive for credits added, negative for credits spent
+  balanceAfter: integer("balance_after").notNull(),
+  description: text("description").notNull(),
+  bookingId: varchar("booking_id").references(() => bookings.id, { onDelete: 'set null' }),
+  stripePaymentIntentId: varchar("stripe_payment_intent_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const creditTransactionsRelations = relations(creditTransactions, ({ one }) => ({
+  user: one(users, {
+    fields: [creditTransactions.userId],
+    references: [users.id],
+  }),
+  booking: one(bookings, {
+    fields: [creditTransactions.bookingId],
+    references: [bookings.id],
+  }),
+}));
+
+export const insertCreditTransactionSchema = createInsertSchema(creditTransactions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertCreditTransaction = z.infer<typeof insertCreditTransactionSchema>;
+export type CreditTransaction = typeof creditTransactions.$inferSelect;
+
+// Pricing tiers for credit purchases
+export const pricingTiers = pgTable("pricing_tiers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  credits: integer("credits").notNull(),
+  priceUsd: decimal("price_usd", { precision: 10, scale: 2 }).notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  displayOrder: integer("display_order").notNull().default(0),
+  guardianPayoutPerCredit: decimal("guardian_payout_per_credit", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertPricingTierSchema = createInsertSchema(pricingTiers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertPricingTier = z.infer<typeof insertPricingTierSchema>;
+export type PricingTier = typeof pricingTiers.$inferSelect;
 
 // Reviews for guardians
 export const reviews = pgTable("reviews", {
