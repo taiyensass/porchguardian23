@@ -20,17 +20,20 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 export interface IStorage {
   // User operations (required for Replit Auth)
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
   updateUserRole(id: string, role: string): Promise<User>;
+  getAllUsers(): Promise<User[]>;
 
   // Guardian operations
   getGuardian(id: string): Promise<any | undefined>;
   getGuardianByUserId(userId: string): Promise<Guardian | undefined>;
   getAllGuardians(): Promise<any[]>;
+  getAllGuardiansForAdmin(): Promise<Guardian[]>;
   getPendingGuardians(): Promise<any[]>;
   createGuardian(guardian: InsertGuardian): Promise<Guardian>;
   updateGuardian(id: string, guardian: Partial<InsertGuardian>): Promise<Guardian>;
@@ -39,6 +42,7 @@ export interface IStorage {
   getBooking(id: string): Promise<any | undefined>;
   getBookingsByCustomer(customerId: string): Promise<any[]>;
   getBookingsByGuardian(guardianId: string): Promise<any[]>;
+  getAllBookingsForAdmin(): Promise<any[]>;
   createBooking(booking: InsertBooking): Promise<Booking>;
   updateBooking(id: string, booking: Partial<InsertBooking>): Promise<Booking>;
 
@@ -90,6 +94,10 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
   // Guardian operations
   async getGuardian(id: string): Promise<any | undefined> {
     const [guardian] = await db
@@ -125,6 +133,10 @@ export class DatabaseStorage implements IStorage {
       ...row.guardians,
       user: row.users,
     }));
+  }
+
+  async getAllGuardiansForAdmin(): Promise<Guardian[]> {
+    return await db.select().from(guardians).orderBy(desc(guardians.createdAt));
   }
 
   async getPendingGuardians(): Promise<any[]> {
@@ -207,6 +219,29 @@ export class DatabaseStorage implements IStorage {
     return results.map((row) => ({
       ...row.bookings,
       customer: row.users,
+    }));
+  }
+
+  async getAllBookingsForAdmin(): Promise<any[]> {
+    // Create alias for customer users to avoid join conflict
+    const customerUsers = alias(users, 'customerUsers');
+    const guardianUsers = alias(users, 'guardianUsers');
+    
+    const results = await db
+      .select()
+      .from(bookings)
+      .leftJoin(guardians, eq(bookings.guardianId, guardians.id))
+      .leftJoin(guardianUsers, eq(guardians.userId, guardianUsers.id))
+      .leftJoin(customerUsers, eq(bookings.customerId, customerUsers.id))
+      .orderBy(desc(bookings.createdAt));
+
+    return results.map((row) => ({
+      ...row.bookings,
+      guardian: {
+        ...row.guardians,
+        user: row.guardianUsers,
+      },
+      customer: row.customerUsers,
     }));
   }
 

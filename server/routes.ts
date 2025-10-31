@@ -24,7 +24,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
-      res.json(user);
+      
+      // Check if user has a guardian profile
+      const guardianProfile = await storage.getGuardianByUserId(userId);
+      
+      // Calculate available roles
+      const availableRoles: string[] = ['customer']; // Everyone can be a customer
+      
+      if (guardianProfile) {
+        availableRoles.push('guardian');
+      }
+      
+      if (user?.role === 'admin') {
+        availableRoles.push('admin');
+      }
+      
+      res.json({
+        ...user,
+        availableRoles,
+        guardianProfile: guardianProfile ? {
+          id: guardianProfile.id,
+          verificationStatus: guardianProfile.verificationStatus,
+          isActive: guardianProfile.isActive,
+        } : null,
+      });
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
@@ -238,6 +261,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching pending guardians:", error);
       res.status(500).json({ message: "Failed to fetch pending guardians" });
+    }
+  });
+
+  // Admin metrics endpoint
+  app.get("/api/admin/metrics", isAdmin, async (req, res) => {
+    try {
+      const [allBookings, allGuardians, allUsers] = await Promise.all([
+        storage.getAllBookingsForAdmin(),
+        storage.getAllGuardiansForAdmin(),
+        storage.getAllUsers(),
+      ]);
+
+      const totalBookings = allBookings.length;
+      const completedBookings = allBookings.filter(b => b.status === 'completed').length;
+      const totalRevenue = allBookings
+        .filter(b => b.status === 'completed')
+        .reduce((sum, b) => sum + parseFloat(b.totalPrice || '0'), 0);
+      
+      const activeGuardians = allGuardians.filter(g => g.verificationStatus === 'verified' && g.isActive).length;
+      const pendingGuardians = allGuardians.filter(g => g.verificationStatus === 'pending').length;
+      
+      res.json({
+        totalBookings,
+        completedBookings,
+        totalRevenue,
+        platformRevenue: totalRevenue * PLATFORM_FEE_PERCENTAGE,
+        activeGuardians,
+        pendingGuardians,
+        totalUsers: allUsers.length,
+      });
+    } catch (error) {
+      console.error("Error fetching admin metrics:", error);
+      res.status(500).json({ message: "Failed to fetch metrics" });
+    }
+  });
+
+  // Admin users endpoint
+  app.get("/api/admin/users", isAdmin, async (req, res) => {
+    try {
+      const users = await storage.getAllUsers();
+      res.json(users);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  // Admin update user role
+  app.patch("/api/admin/users/:id", isAdmin, async (req, res) => {
+    try {
+      const { role } = req.body;
+      if (!['customer', 'guardian', 'admin'].includes(role)) {
+        return res.status(400).json({ message: "Invalid role" });
+      }
+      
+      const user = await storage.updateUserRole(req.params.id, role);
+      res.json(user);
+    } catch (error: any) {
+      console.error("Error updating user:", error);
+      res.status(500).json({ message: error.message || "Failed to update user" });
+    }
+  });
+
+  // Admin all bookings endpoint
+  app.get("/api/admin/bookings", isAdmin, async (req, res) => {
+    try {
+      const status = req.query.status as string;
+      const bookings = await storage.getAllBookingsForAdmin();
+      
+      const filteredBookings = status
+        ? bookings.filter(b => b.status === status)
+        : bookings;
+      
+      res.json(filteredBookings);
+    } catch (error) {
+      console.error("Error fetching admin bookings:", error);
+      res.status(500).json({ message: "Failed to fetch bookings" });
     }
   });
 
