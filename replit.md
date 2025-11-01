@@ -10,6 +10,37 @@ The platform is built as a full-stack TypeScript application with a React fronte
 
 Preferred communication style: Simple, everyday language.
 
+## Recent Updates (January 2025)
+
+### Guardian Profile Management
+- **Profile Editing**: Guardians can now edit their profiles (bio, address, pricing, capacity) via Edit Profile button on dashboard
+  - Full Zod validation on both frontend (react-hook-form) and backend (PATCH endpoint)
+  - Real-time cache invalidation ensures immediate UI updates
+  - Route ordering fixed: specific routes (`/api/guardians/by-user`) now precede parameterized routes (`/api/guardians/:id`)
+
+### Messaging System
+- **Customer-Guardian Communication**: Complete messaging interface for booking-related conversations
+  - Customer dashboard: Messages tab with conversation list and chat interface
+  - Guardian dashboard: Messages card showing active conversations
+  - Real-time message sending with optimistic updates
+  - Secure endpoints with ownership validation (only booking participants can view/send messages)
+
+### Admin Dashboard Enhancements
+- **Verified Guardians View**: New admin panel showing all approved guardians with operational metrics
+  - Real-time package load tracking (current packages vs max capacity)
+  - Color-coded capacity utilization: green (<70%), yellow (70-90%), red (>90%)
+  - Guardian payout information and total earnings visibility
+  - Performance optimized with single aggregated SQL query using groupBy (eliminates N+1 pattern)
+
+### Database Optimizations
+- Replaced N+1 query patterns with single aggregated queries for scalability
+- Added division-by-zero guards for capacity calculations
+- All verified guardian stats computed in single database roundtrip
+
+### Bug Fixes
+- Fixed Express route ordering bug where `/api/guardians/by-user` was incorrectly matched by `/api/guardians/:id`
+- Guardian status now persists correctly after admin approval (role switcher uses server-computed availableRoles)
+
 ## System Architecture
 
 ### Frontend Architecture
