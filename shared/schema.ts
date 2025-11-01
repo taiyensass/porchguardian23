@@ -43,7 +43,7 @@ export type User = typeof users.$inferSelect;
 // Guardian profiles - users who accept packages
 export const guardians = pgTable("guardians", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
   bio: text("bio"),
   address: text("address").notNull(),
   city: varchar("city").notNull(),
@@ -93,8 +93,8 @@ export type Guardian = typeof guardians.$inferSelect;
 // Bookings - package acceptance requests
 export const bookings = pgTable("bookings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  customerId: varchar("customer_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
-  guardianId: varchar("guardian_id").notNull().references(() => guardians.id, { onDelete: 'cascade' }),
+  customerId: varchar("customer_id").notNull().references(() => users.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+  guardianId: varchar("guardian_id").notNull().references(() => guardians.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
   deliveryDate: timestamp("delivery_date").notNull(),
   pickupDate: timestamp("pickup_date"),
   packageCount: integer("package_count").notNull().default(1),
@@ -141,8 +141,8 @@ export type Booking = typeof bookings.$inferSelect;
 // Messages between customers and guardians
 export const messages = pgTable("messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  bookingId: varchar("booking_id").notNull().references(() => bookings.id, { onDelete: 'cascade' }),
-  senderId: varchar("sender_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  bookingId: varchar("booking_id").notNull().references(() => bookings.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+  senderId: varchar("sender_id").notNull().references(() => users.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
   content: text("content").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -169,7 +169,7 @@ export type Message = typeof messages.$inferSelect;
 // User credit balances
 export const userCredits = pgTable("user_credits", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }).unique(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade', onUpdate: 'cascade' }).unique(),
   balance: integer("balance").notNull().default(0),
   lifetimeEarned: integer("lifetime_earned").notNull().default(0),
   lifetimeSpent: integer("lifetime_spent").notNull().default(0),
@@ -196,12 +196,12 @@ export type UserCredits = typeof userCredits.$inferSelect;
 // Credit transactions (purchases and usage)
 export const creditTransactions = pgTable("credit_transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
   type: varchar("type").notNull(), // purchase, booking_deduction, refund, admin_grant
   amount: integer("amount").notNull(), // positive for credits added, negative for credits spent
   balanceAfter: integer("balance_after").notNull(),
   description: text("description").notNull(),
-  bookingId: varchar("booking_id").references(() => bookings.id, { onDelete: 'set null' }),
+  bookingId: varchar("booking_id").references(() => bookings.id, { onDelete: 'set null', onUpdate: 'cascade' }),
   stripePaymentIntentId: varchar("stripe_payment_intent_id"),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -250,9 +250,9 @@ export type PricingTier = typeof pricingTiers.$inferSelect;
 // Reviews for guardians
 export const reviews = pgTable("reviews", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  bookingId: varchar("booking_id").notNull().references(() => bookings.id, { onDelete: 'cascade' }).unique(),
-  guardianId: varchar("guardian_id").notNull().references(() => guardians.id, { onDelete: 'cascade' }),
-  customerId: varchar("customer_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  bookingId: varchar("booking_id").notNull().references(() => bookings.id, { onDelete: 'cascade', onUpdate: 'cascade' }).unique(),
+  guardianId: varchar("guardian_id").notNull().references(() => guardians.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+  customerId: varchar("customer_id").notNull().references(() => users.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
   rating: integer("rating").notNull(), // 1-5
   comment: text("comment"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -284,9 +284,9 @@ export type Review = typeof reviews.$inferSelect;
 // Packages - individual packages received by guardians
 export const packages = pgTable("packages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  bookingId: varchar("booking_id").notNull().references(() => bookings.id, { onDelete: 'cascade' }),
-  guardianId: varchar("guardian_id").notNull().references(() => guardians.id, { onDelete: 'cascade' }),
-  customerId: varchar("customer_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  bookingId: varchar("booking_id").notNull().references(() => bookings.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+  guardianId: varchar("guardian_id").notNull().references(() => guardians.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+  customerId: varchar("customer_id").notNull().references(() => users.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
   trackingNumber: varchar("tracking_number"),
   carrier: varchar("carrier"), // USPS, FedEx, UPS, Amazon, etc.
   status: varchar("status").notNull().default("expected"), // expected, received, picked_up
