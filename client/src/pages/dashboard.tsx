@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { ReviewModal } from "@/components/review-modal";
+import { MessagingView } from "@/components/messaging";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   Package,
@@ -28,6 +29,7 @@ import {
   Gift,
   ChevronDown,
   ChevronUp,
+  MessageCircle,
 } from "lucide-react";
 import type { Booking, Guardian, User, PricingTier, CreditTransaction } from "@shared/schema";
 import {
@@ -363,6 +365,10 @@ function CustomerDashboardView() {
           <TabsTrigger value="completed" data-testid="tab-completed">
             Completed ({completedBookings.length})
           </TabsTrigger>
+          <TabsTrigger value="messages" data-testid="tab-messages">
+            <MessageCircle className="h-4 w-4 mr-1" />
+            Messages
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="all" className="space-y-4">
@@ -450,6 +456,10 @@ function CustomerDashboardView() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        <TabsContent value="messages">
+          <MessagingView />
         </TabsContent>
       </Tabs>
     </div>
@@ -1010,6 +1020,18 @@ function GuardianDashboardView() {
           <p className="text-muted-foreground">
             Package tracking and management features coming soon. You'll be able to mark packages as received and track pickups.
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <MessageCircle className="h-5 w-5" />
+            Messages
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <MessagingView />
         </CardContent>
       </Card>
     </div>
