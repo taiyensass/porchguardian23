@@ -28,7 +28,7 @@ import {
   type InsertPricingTier,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, count, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 export interface IStorage {
@@ -44,6 +44,7 @@ export interface IStorage {
   getAllGuardians(): Promise<any[]>;
   getAllGuardiansForAdmin(): Promise<Guardian[]>;
   getPendingGuardians(): Promise<any[]>;
+  getVerifiedGuardiansWithStats(): Promise<any[]>;
   createGuardian(guardian: InsertGuardian): Promise<Guardian>;
   updateGuardian(id: string, guardian: Partial<InsertGuardian>): Promise<Guardian>;
 
@@ -197,6 +198,54 @@ export class DatabaseStorage implements IStorage {
       ...row.guardians,
       user: row.users,
     }));
+  }
+
+  async getVerifiedGuardiansWithStats(): Promise<any[]> {
+    // Get all verified guardians
+    const verifiedGuardians = await db
+      .select()
+      .from(guardians)
+      .leftJoin(users, eq(guardians.userId, users.id))
+      .where(and(eq(guardians.verificationStatus, 'verified'), eq(guardians.isActive, true)))
+      .orderBy(desc(guardians.createdAt));
+
+    // Get active booking counts for all guardians in a single query
+    const bookingCounts = await db
+      .select({
+        guardianId: bookings.guardianId,
+        count: count(),
+      })
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.status, 'confirmed'),
+          eq(bookings.paymentStatus, 'held')
+        )
+      )
+      .groupBy(bookings.guardianId);
+
+    // Create a map for quick lookup
+    const bookingCountMap = new Map(
+      bookingCounts.map(bc => [bc.guardianId, bc.count])
+    );
+
+    // Combine guardians with their booking stats
+    return verifiedGuardians.map((row) => {
+      const guardian = row.guardians;
+      const activeBookings = bookingCountMap.get(guardian.id) || 0;
+      const capacity = guardian.maxPackages || 0;
+      const utilizationPercent = capacity > 0 
+        ? Math.round((activeBookings / capacity) * 100) 
+        : 0;
+
+      return {
+        ...guardian,
+        user: row.users,
+        activeBookings,
+        capacity,
+        utilizationPercent,
+      };
+    });
   }
 
   async createGuardian(guardianData: InsertGuardian): Promise<Guardian> {

@@ -284,6 +284,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/admin/guardians/verified", isAdmin, async (req, res) => {
+    try {
+      const verifiedGuardians = await storage.getVerifiedGuardiansWithStats();
+      res.json(verifiedGuardians);
+    } catch (error) {
+      console.error("Error fetching verified guardians:", error);
+      res.status(500).json({ message: "Failed to fetch verified guardians" });
+    }
+  });
+
   // Admin metrics endpoint
   app.get("/api/admin/metrics", isAdmin, async (req, res) => {
     try {

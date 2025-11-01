@@ -1024,6 +1024,10 @@ function AdminDashboardView() {
     queryKey: ["/api/admin/guardians/pending"],
   });
 
+  const { data: verifiedGuardians, isLoading: loadingVerified } = useQuery<any[]>({
+    queryKey: ["/api/admin/guardians/verified"],
+  });
+
   const approveMutation = useMutation({
     mutationFn: async (guardianId: string) => {
       return apiRequest("POST", `/api/admin/guardians/${guardianId}/approve`);
@@ -1122,6 +1126,84 @@ function AdminDashboardView() {
           ) : (
             <div className="p-12 text-center text-muted-foreground">
               No pending guardian approvals
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Active Guardians ({verifiedGuardians?.length || 0})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loadingVerified ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+            </div>
+          ) : verifiedGuardians && verifiedGuardians.length > 0 ? (
+            <div className="space-y-4">
+              {verifiedGuardians.map((guardian) => {
+                const guardianName = `${guardian.user?.firstName || ""} ${guardian.user?.lastName || ""}`.trim() || "Guardian";
+                const utilization = guardian.activeBookings || 0;
+                const capacity = guardian.capacity || guardian.maxPackages || 5;
+                const utilizationPercent = guardian.utilizationPercent || 0;
+                
+                return (
+                  <Card key={guardian.id} className="hover-elevate" data-testid={`card-verified-guardian-${guardian.id}`}>
+                    <CardContent className="p-6">
+                      <div className="flex items-center justify-between gap-6">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h3 className="text-lg font-semibold">{guardianName}</h3>
+                            <div className="flex items-center gap-1 text-green-600">
+                              <CheckCircle2 className="h-4 w-4" />
+                              <span className="text-sm font-semibold">Verified</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground mb-2">
+                            <MapPin className="h-4 w-4" />
+                            <span>{guardian.city}, {guardian.state}</span>
+                          </div>
+                          <div className="flex items-center gap-4 text-sm">
+                            <span className="text-muted-foreground">
+                              Price: ${guardian.pricePerPackage}/package
+                            </span>
+                            <span className="text-muted-foreground">
+                              Payout: {guardian.payoutsEnabled ? "Enabled" : "Not Setup"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <div className="text-right">
+                            <div className="text-2xl font-bold">{utilization}/{capacity}</div>
+                            <div className="text-xs text-muted-foreground">Active Bookings</div>
+                          </div>
+                          <div className="w-32">
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                              <span>Capacity</span>
+                              <span className="font-semibold">{utilizationPercent}%</span>
+                            </div>
+                            <div className="h-2 bg-muted rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full transition-all ${
+                                  utilizationPercent >= 80 ? 'bg-red-500' : 
+                                  utilizationPercent >= 60 ? 'bg-yellow-500' : 
+                                  'bg-green-500'
+                                }`}
+                                style={{ width: `${Math.min(utilizationPercent, 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="p-12 text-center text-muted-foreground">
+              No active guardians
             </div>
           )}
         </CardContent>
