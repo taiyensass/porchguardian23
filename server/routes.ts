@@ -85,15 +85,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/guardians/:id", async (req, res) => {
+  // More specific routes must come before parameterized routes
+  app.get("/api/guardians/by-user", isAuthenticated, async (req: any, res) => {
     try {
-      const guardian = await storage.getGuardian(req.params.id);
+      const userId = req.user.claims.sub;
+      const guardian = await storage.getGuardianByUserId(userId);
+      
       if (!guardian) {
-        return res.status(404).json({ message: "Guardian not found" });
+        return res.status(404).json({ message: "Guardian profile not found" });
       }
+
       res.json(guardian);
     } catch (error) {
-      console.error("Error fetching guardian:", error);
+      console.error("Error fetching guardian by user:", error);
       res.status(500).json({ message: "Failed to fetch guardian" });
     }
   });
@@ -108,18 +112,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/guardians/by-user", isAuthenticated, async (req: any, res) => {
+  app.get("/api/guardians/:id", async (req, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const guardian = await storage.getGuardianByUserId(userId);
-      
+      const guardian = await storage.getGuardian(req.params.id);
       if (!guardian) {
-        return res.status(404).json({ message: "Guardian profile not found" });
+        return res.status(404).json({ message: "Guardian not found" });
       }
-
       res.json(guardian);
     } catch (error) {
-      console.error("Error fetching guardian by user:", error);
+      console.error("Error fetching guardian:", error);
       res.status(500).json({ message: "Failed to fetch guardian" });
     }
   });
