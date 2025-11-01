@@ -152,6 +152,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.patch("/api/guardians/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const guardian = await storage.getGuardian(req.params.id);
+
+      if (!guardian) {
+        return res.status(404).json({ message: "Guardian not found" });
+      }
+
+      if (guardian.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      // Create partial schema with only editable fields
+      const updateSchema = insertGuardianSchema.partial().pick({
+        bio: true,
+        address: true,
+        city: true,
+        state: true,
+        zipCode: true,
+        pricePerPackage: true,
+        maxPackages: true,
+      });
+
+      // Validate input data
+      const validatedData = updateSchema.parse(req.body);
+
+      const updated = await storage.updateGuardian(req.params.id, validatedData);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating guardian:", error);
+      res.status(400).json({ message: error.message || "Failed to update guardian" });
+    }
+  });
+
   // Guardian verification routes
   app.post("/api/guardians/:id/create-verification-session", isAuthenticated, async (req: any, res) => {
     try {

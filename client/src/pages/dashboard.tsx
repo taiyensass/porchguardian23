@@ -57,11 +57,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertPricingTierSchema } from "@shared/schema";
+import { insertPricingTierSchema, insertGuardianSchema } from "@shared/schema";
 import { z } from "zod";
 import { format } from "date-fns";
 
@@ -805,6 +807,249 @@ function CreditBalanceSection({
   );
 }
 
+// ===== GUARDIAN PROFILE CARD =====
+function GuardianProfileCard({ guardianProfile }: { guardianProfile: GuardianWithUser }) {
+  const { toast } = useToast();
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+
+  const updateGuardianSchema = insertGuardianSchema.pick({
+    bio: true,
+    address: true,
+    city: true,
+    state: true,
+    zipCode: true,
+    pricePerPackage: true,
+    maxPackages: true,
+  });
+
+  const form = useForm<z.infer<typeof updateGuardianSchema>>({
+    resolver: zodResolver(updateGuardianSchema),
+    defaultValues: {
+      bio: guardianProfile.bio || "",
+      address: guardianProfile.address || "",
+      city: guardianProfile.city || "",
+      state: guardianProfile.state || "",
+      zipCode: guardianProfile.zipCode || "",
+      pricePerPackage: guardianProfile.pricePerPackage || "5.00",
+      maxPackages: guardianProfile.maxPackages || 5,
+    },
+  });
+
+  const updateProfileMutation = useMutation({
+    mutationFn: async (data: z.infer<typeof updateGuardianSchema>) => {
+      return apiRequest("PATCH", `/api/guardians/${guardianProfile.id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/guardians/by-user"] });
+      setEditDialogOpen(false);
+      toast({
+        title: "Success",
+        description: "Profile updated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSubmit = (data: z.infer<typeof updateGuardianSchema>) => {
+    updateProfileMutation.mutate(data);
+  };
+
+  return (
+    <>
+      <Card className="mb-8">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Guardian Profile</CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditDialogOpen(true)}
+              data-testid="button-edit-profile"
+            >
+              <Edit className="h-4 w-4 mr-1" />
+              Edit Profile
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <h4 className="font-semibold mb-1">About</h4>
+            <p className="text-sm text-muted-foreground">{guardianProfile.bio || "No bio provided"}</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <h4 className="font-semibold mb-1">Address</h4>
+              <p className="text-sm text-muted-foreground">
+                {guardianProfile.address}<br />
+                {guardianProfile.city}, {guardianProfile.state} {guardianProfile.zipCode}
+              </p>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-1">Pricing</h4>
+              <p className="text-sm text-muted-foreground">
+                ${guardianProfile.pricePerPackage}/package<br />
+                Max capacity: {guardianProfile.maxPackages} packages
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Guardian Profile</DialogTitle>
+            <DialogDescription>
+              Update your profile information. Changes will be visible to customers.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="bio"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>About You</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Tell customers about yourself..." data-testid="input-edit-bio" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="space-y-3">
+                <h4 className="font-semibold">Address</h4>
+                <FormField
+                  control={form.control}
+                  name="address"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Street Address</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="123 Main St" data-testid="input-edit-address" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <FormField
+                    control={form.control}
+                    name="city"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>City</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="San Francisco" data-testid="input-edit-city" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="state"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>State</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="CA" maxLength={2} data-testid="input-edit-state" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="zipCode"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Zip Code</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="94102" data-testid="input-edit-zip" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <FormField
+                  control={form.control}
+                  name="pricePerPackage"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Price per Package ($)</FormLabel>
+                      <FormControl>
+                        <Input 
+                          {...field} 
+                          type="text" 
+                          placeholder="5.00" 
+                          data-testid="input-edit-price" 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="maxPackages"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Max Packages</FormLabel>
+                      <FormControl>
+                        <Input 
+                          {...field} 
+                          type="number" 
+                          min={1}
+                          onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
+                          data-testid="input-edit-max" 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEditDialogOpen(false)}
+                  disabled={updateProfileMutation.isPending}
+                  data-testid="button-cancel-edit"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={updateProfileMutation.isPending}
+                  data-testid="button-save-profile"
+                >
+                  {updateProfileMutation.isPending ? "Saving..." : "Save Changes"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 // ===== GUARDIAN DASHBOARD VIEW =====
 function GuardianDashboardView() {
   const { user } = useAuth();
@@ -954,6 +1199,8 @@ function GuardianDashboardView() {
           </CardContent>
         </Card>
       </div>
+
+      <GuardianProfileCard guardianProfile={guardianProfile} />
 
       {guardianProfile && (
         <Card className="mb-8" data-testid="card-payout-setup">
