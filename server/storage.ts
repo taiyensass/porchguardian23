@@ -8,6 +8,7 @@ import {
   userCredits,
   creditTransactions,
   pricingTiers,
+  adminMessages,
   type User,
   type UpsertUser,
   type Guardian,
@@ -26,6 +27,8 @@ import {
   type InsertCreditTransaction,
   type PricingTier,
   type InsertPricingTier,
+  type AdminMessage,
+  type InsertAdminMessage,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, count, sql } from "drizzle-orm";
@@ -85,6 +88,13 @@ export interface IStorage {
   getPricingTier(id: string): Promise<PricingTier | undefined>;
   createPricingTier(tier: InsertPricingTier): Promise<PricingTier>;
   updatePricingTier(id: string, tier: Partial<InsertPricingTier>): Promise<PricingTier>;
+
+  // Admin operations
+  getAllMessagesForAdmin(): Promise<any[]>;
+  getAdminMessagesByUser(userId: string): Promise<any[]>;
+  createAdminMessage(message: InsertAdminMessage): Promise<AdminMessage>;
+  markAdminMessageAsRead(id: string): Promise<AdminMessage>;
+  getBookingWithFullDetails(id: string): Promise<any | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -605,6 +615,159 @@ export class DatabaseStorage implements IStorage {
       .where(eq(pricingTiers.id, id))
       .returning();
     return tier;
+  }
+
+  // Admin operations
+  async getAllMessagesForAdmin(): Promise<any[]> {
+    const sender = alias(users, "sender");
+    const customerUser = alias(users, "customer_user");
+    const guardianUser = alias(users, "guardian_user");
+
+    return await db
+      .select({
+        id: messages.id,
+        content: messages.content,
+        createdAt: messages.createdAt,
+        bookingId: messages.bookingId,
+        sender: {
+          id: sender.id,
+          firstName: sender.firstName,
+          lastName: sender.lastName,
+          email: sender.email,
+        },
+        booking: {
+          id: bookings.id,
+          status: bookings.status,
+          deliveryDate: bookings.deliveryDate,
+          customer: {
+            id: customerUser.id,
+            firstName: customerUser.firstName,
+            lastName: customerUser.lastName,
+            email: customerUser.email,
+          },
+          guardian: {
+            id: guardians.id,
+            user: {
+              id: guardianUser.id,
+              firstName: guardianUser.firstName,
+              lastName: guardianUser.lastName,
+              email: guardianUser.email,
+            },
+          },
+        },
+      })
+      .from(messages)
+      .innerJoin(sender, eq(messages.senderId, sender.id))
+      .innerJoin(bookings, eq(messages.bookingId, bookings.id))
+      .innerJoin(customerUser, eq(bookings.customerId, customerUser.id))
+      .innerJoin(guardians, eq(bookings.guardianId, guardians.id))
+      .innerJoin(guardianUser, eq(guardians.userId, guardianUser.id))
+      .orderBy(desc(messages.createdAt));
+  }
+
+  async getAdminMessagesByUser(userId: string): Promise<any[]> {
+    const user = alias(users, "user");
+    const admin = alias(users, "admin");
+
+    return await db
+      .select({
+        id: adminMessages.id,
+        content: adminMessages.content,
+        isRead: adminMessages.isRead,
+        readAt: adminMessages.readAt,
+        createdAt: adminMessages.createdAt,
+        user: {
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+        },
+        admin: {
+          id: admin.id,
+          firstName: admin.firstName,
+          lastName: admin.lastName,
+          email: admin.email,
+        },
+      })
+      .from(adminMessages)
+      .innerJoin(user, eq(adminMessages.userId, user.id))
+      .innerJoin(admin, eq(adminMessages.adminId, admin.id))
+      .where(eq(adminMessages.userId, userId))
+      .orderBy(desc(adminMessages.createdAt));
+  }
+
+  async createAdminMessage(messageData: InsertAdminMessage): Promise<AdminMessage> {
+    const [message] = await db.insert(adminMessages).values(messageData).returning();
+    return message;
+  }
+
+  async markAdminMessageAsRead(id: string): Promise<AdminMessage> {
+    const [message] = await db
+      .update(adminMessages)
+      .set({ isRead: true, readAt: new Date() })
+      .where(eq(adminMessages.id, id))
+      .returning();
+    return message;
+  }
+
+  async getBookingWithFullDetails(id: string): Promise<any | undefined> {
+    const customerUser = alias(users, "customer_user");
+    const guardianUser = alias(users, "guardian_user");
+
+    const [booking] = await db
+      .select({
+        id: bookings.id,
+        deliveryDate: bookings.deliveryDate,
+        pickupDate: bookings.pickupDate,
+        packageCount: bookings.packageCount,
+        packageDetails: bookings.packageDetails,
+        specialInstructions: bookings.specialInstructions,
+        status: bookings.status,
+        paymentMethod: bookings.paymentMethod,
+        paymentStatus: bookings.paymentStatus,
+        creditsUsed: bookings.creditsUsed,
+        totalPrice: bookings.totalPrice,
+        platformFee: bookings.platformFee,
+        guardianPayout: bookings.guardianPayout,
+        stripePaymentIntentId: bookings.stripePaymentIntentId,
+        stripeTransferId: bookings.stripeTransferId,
+        pickupConfirmedAt: bookings.pickupConfirmedAt,
+        paymentReleasedAt: bookings.paymentReleasedAt,
+        createdAt: bookings.createdAt,
+        updatedAt: bookings.updatedAt,
+        customer: {
+          id: customerUser.id,
+          firstName: customerUser.firstName,
+          lastName: customerUser.lastName,
+          email: customerUser.email,
+          role: customerUser.role,
+        },
+        guardian: {
+          id: guardians.id,
+          address: guardians.address,
+          city: guardians.city,
+          state: guardians.state,
+          zipCode: guardians.zipCode,
+          pricePerPackage: guardians.pricePerPackage,
+          maxPackages: guardians.maxPackages,
+          verificationStatus: guardians.verificationStatus,
+          stripeConnectAccountId: guardians.stripeConnectAccountId,
+          payoutsEnabled: guardians.payoutsEnabled,
+          user: {
+            id: guardianUser.id,
+            firstName: guardianUser.firstName,
+            lastName: guardianUser.lastName,
+            email: guardianUser.email,
+          },
+        },
+      })
+      .from(bookings)
+      .innerJoin(customerUser, eq(bookings.customerId, customerUser.id))
+      .innerJoin(guardians, eq(bookings.guardianId, guardians.id))
+      .innerJoin(guardianUser, eq(guardians.userId, guardianUser.id))
+      .where(eq(bookings.id, id));
+
+    return booking;
   }
 }
 

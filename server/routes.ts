@@ -483,6 +483,167 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin Operations - Get all bookings
+  app.get("/api/admin/bookings", isAdmin, async (req, res) => {
+    try {
+      const bookings = await storage.getAllBookingsForAdmin();
+      res.json(bookings);
+    } catch (error: any) {
+      console.error("Error fetching all bookings:", error);
+      res.status(500).json({ message: "Failed to fetch bookings" });
+    }
+  });
+
+  // Admin Operations - Messages Oversight
+  app.get("/api/admin/all-messages", isAdmin, async (req, res) => {
+    try {
+      const messages = await storage.getAllMessagesForAdmin();
+      res.json(messages);
+    } catch (error: any) {
+      console.error("Error fetching all messages:", error);
+      res.status(500).json({ message: "Failed to fetch messages" });
+    }
+  });
+
+  // Admin Messaging - Get conversation with specific user
+  app.get("/api/admin/messages/:userId", isAdmin, async (req, res) => {
+    try {
+      const messages = await storage.getAdminMessagesByUser(req.params.userId);
+      res.json(messages);
+    } catch (error: any) {
+      console.error("Error fetching admin messages:", error);
+      res.status(500).json({ message: "Failed to fetch messages" });
+    }
+  });
+
+  // Admin Messaging - Send message to user
+  app.post("/api/admin/messages", isAdmin, async (req: any, res) => {
+    try {
+      const adminId = req.user.claims.sub;
+      const { userId, content } = req.body;
+
+      if (!userId || !content) {
+        return res.status(400).json({ message: "userId and content are required" });
+      }
+
+      const message = await storage.createAdminMessage({
+        userId,
+        adminId,
+        content,
+        isRead: false,
+      });
+
+      res.status(201).json(message);
+    } catch (error: any) {
+      console.error("Error sending admin message:", error);
+      res.status(400).json({ message: error.message || "Failed to send message" });
+    }
+  });
+
+  // Admin Messaging - Mark message as read
+  app.patch("/api/admin/messages/:id/read", isAdmin, async (req, res) => {
+    try {
+      const message = await storage.markAdminMessageAsRead(req.params.id);
+      res.json(message);
+    } catch (error: any) {
+      console.error("Error marking message as read:", error);
+      res.status(400).json({ message: error.message || "Failed to mark message as read" });
+    }
+  });
+
+  // Admin Operations - Get booking with full details
+  app.get("/api/admin/bookings/:id/full", isAdmin, async (req, res) => {
+    try {
+      const booking = await storage.getBookingWithFullDetails(req.params.id);
+      
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      res.json(booking);
+    } catch (error: any) {
+      console.error("Error fetching booking details:", error);
+      res.status(500).json({ message: "Failed to fetch booking details" });
+    }
+  });
+
+  // Admin Intervention - Cancel booking
+  app.post("/api/admin/bookings/:id/cancel", isAdmin, async (req, res) => {
+    try {
+      const booking = await storage.getBooking(req.params.id);
+      
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      const updated = await storage.updateBooking(req.params.id, {
+        status: "cancelled",
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error cancelling booking:", error);
+      res.status(400).json({ message: error.message || "Failed to cancel booking" });
+    }
+  });
+
+  // Admin Intervention - Issue refund
+  app.post("/api/admin/bookings/:id/refund", isAdmin, async (req, res) => {
+    try {
+      const booking = await storage.getBooking(req.params.id);
+      
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      // Prevent double refunds
+      if (booking.paymentStatus === "refunded") {
+        return res.status(400).json({ message: "Booking already refunded" });
+      }
+
+      // Validate payment can be refunded
+      if (booking.paymentStatus !== "held" && booking.paymentStatus !== "released") {
+        return res.status(400).json({ 
+          message: `Cannot refund booking with payment status: ${booking.paymentStatus}` 
+        });
+      }
+
+      if (booking.paymentMethod === "stripe" && booking.stripePaymentIntentId) {
+        // Refund via Stripe
+        const refund = await stripe.refunds.create({
+          payment_intent: booking.stripePaymentIntentId,
+        });
+
+        const updated = await storage.updateBooking(req.params.id, {
+          status: "cancelled",
+          paymentStatus: "refunded",
+        });
+
+        res.json({ booking: updated, refund });
+      } else if (booking.paymentMethod === "credits" && booking.creditsUsed > 0) {
+        // Refund credits back to user
+        await storage.addCredits(
+          booking.customerId,
+          booking.creditsUsed,
+          "refund",
+          `Refund for booking #${booking.id}`,
+        );
+
+        const updated = await storage.updateBooking(req.params.id, {
+          status: "cancelled",
+          paymentStatus: "refunded",
+        });
+
+        res.json({ booking: updated });
+      } else {
+        return res.status(400).json({ message: "Invalid payment method or no payment to refund" });
+      }
+    } catch (error: any) {
+      console.error("Error issuing refund:", error);
+      res.status(400).json({ message: error.message || "Failed to issue refund" });
+    }
+  });
+
   // Credit Purchase Route
   
   // Create Stripe payment intent for credit purchase

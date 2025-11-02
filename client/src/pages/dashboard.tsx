@@ -30,6 +30,9 @@ import {
   ChevronDown,
   ChevronUp,
   MessageCircle,
+  Users,
+  Send,
+  Search,
 } from "lucide-react";
 import type { Booking, Guardian, User, PricingTier, CreditTransaction } from "@shared/schema";
 import {
@@ -1287,6 +1290,57 @@ function GuardianDashboardView() {
 
 // ===== ADMIN DASHBOARD VIEW =====
 function AdminDashboardView() {
+  return (
+    <div data-testid="admin-dashboard-view" className="space-y-6">
+      <div>
+        <h2 className="text-3xl font-bold tracking-tight">Admin Operations Center</h2>
+        <p className="text-muted-foreground mt-1">
+          Manage guardians, monitor operations, and communicate with users
+        </p>
+      </div>
+
+      <Tabs defaultValue="guardians" className="space-y-6">
+        <TabsList data-testid="admin-tabs">
+          <TabsTrigger value="guardians" data-testid="tab-admin-guardians">
+            <Users className="h-4 w-4 mr-2" />
+            Guardians
+          </TabsTrigger>
+          <TabsTrigger value="operations" data-testid="tab-admin-operations">
+            <Package className="h-4 w-4 mr-2" />
+            Operations
+          </TabsTrigger>
+          <TabsTrigger value="messaging" data-testid="tab-admin-messaging">
+            <MessageCircle className="h-4 w-4 mr-2" />
+            User Messages
+          </TabsTrigger>
+          <TabsTrigger value="analytics" data-testid="tab-admin-analytics">
+            <TrendingUp className="h-4 w-4 mr-2" />
+            Analytics
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="guardians">
+          <AdminGuardiansTab />
+        </TabsContent>
+
+        <TabsContent value="operations">
+          <AdminOperationsTab />
+        </TabsContent>
+
+        <TabsContent value="messaging">
+          <AdminMessagingTab />
+        </TabsContent>
+
+        <TabsContent value="analytics">
+          <AdminAnalyticsTab />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// ===== ADMIN GUARDIANS TAB =====
+function AdminGuardiansTab() {
   const { toast } = useToast();
 
   const { data: pendingGuardians, isLoading } = useQuery<GuardianWithUser[]>({
@@ -1338,7 +1392,7 @@ function AdminDashboardView() {
   });
 
   return (
-    <div data-testid="admin-dashboard-view" className="space-y-8">
+    <div className="space-y-8">
       <Card>
         <CardHeader>
           <CardTitle>Pending Guardian Approvals ({pendingGuardians?.length || 0})</CardTitle>
@@ -1484,6 +1538,402 @@ function AdminDashboardView() {
 }
 
 // ===== PRICING TIER MANAGEMENT =====
+// ===== ADMIN OPERATIONS TAB =====
+function AdminOperationsTab() {
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const { data: allBookings, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/bookings"],
+  });
+
+  const { data: allMessages } = useQuery<any[]>({
+    queryKey: ["/api/admin/all-messages"],
+  });
+
+  const filteredBookings = allBookings?.filter(b => 
+    statusFilter === "all" || b.status === statusFilter
+  ) || [];
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <CardTitle>All Bookings ({allBookings?.length || 0})</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Monitor all bookings across the platform
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant={statusFilter === "all" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setStatusFilter("all")}
+                data-testid="filter-all"
+              >
+                All
+              </Button>
+              <Button
+                variant={statusFilter === "pending" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setStatusFilter("pending")}
+                data-testid="filter-pending"
+              >
+                Pending
+              </Button>
+              <Button
+                variant={statusFilter === "confirmed" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setStatusFilter("confirmed")}
+                data-testid="filter-confirmed"
+              >
+                Active
+              </Button>
+              <Button
+                variant={statusFilter === "completed" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setStatusFilter("completed")}
+                data-testid="filter-completed"
+              >
+                Completed
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+            </div>
+          ) : filteredBookings.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>ID</TableHead>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Guardian</TableHead>
+                  <TableHead>Delivery Date</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Payment</TableHead>
+                  <TableHead>Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredBookings.map((booking) => (
+                  <TableRow key={booking.id} data-testid={`row-booking-${booking.id}`}>
+                    <TableCell className="font-mono text-sm">{booking.id.slice(0, 8)}...</TableCell>
+                    <TableCell>
+                      {booking.customer?.firstName} {booking.customer?.lastName}
+                    </TableCell>
+                    <TableCell>
+                      {booking.guardian?.user?.firstName} {booking.guardian?.user?.lastName}
+                    </TableCell>
+                    <TableCell>{new Date(booking.deliveryDate).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      <Badge>{booking.status}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{booking.paymentMethod}</Badge>
+                    </TableCell>
+                    <TableCell>${booking.totalPrice}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="text-center py-12 text-muted-foreground">
+              No bookings found
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>All Platform Messages ({allMessages?.length || 0})</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Monitor customer-guardian conversations for dispute resolution
+          </p>
+        </CardHeader>
+        <CardContent>
+          {allMessages && allMessages.length > 0 ? (
+            <div className="space-y-4 max-h-[400px] overflow-y-auto">
+              {allMessages.slice(0, 20).map((msg) => (
+                <Card key={msg.id} className="hover-elevate">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold text-sm">
+                            {msg.sender?.firstName} {msg.sender?.lastName}
+                          </span>
+                          <Badge variant="outline" className="text-xs">
+                            Booking #{msg.bookingId.slice(0, 8)}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          {msg.content}
+                        </p>
+                        <div className="text-xs text-muted-foreground">
+                          {new Date(msg.createdAt).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12 text-muted-foreground">
+              No messages yet
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ===== ADMIN MESSAGING TAB =====
+function AdminMessagingTab() {
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [messageContent, setMessageContent] = useState("");
+  const { toast } = useToast();
+  const { user } = useAuth();
+
+  const { data: allUsers } = useQuery<User[]>({
+    queryKey: ["/api/admin/users"],
+  });
+
+  const { data: conversation } = useQuery<any[]>({
+    queryKey: selectedUserId ? [`/api/admin/messages/${selectedUserId}`] : [],
+    enabled: !!selectedUserId,
+  });
+
+  const sendMessageMutation = useMutation({
+    mutationFn: async (data: { userId: string; content: string }) => {
+      return apiRequest("POST", "/api/admin/messages", data);
+    },
+    onSuccess: () => {
+      setMessageContent("");
+      if (selectedUserId) {
+        queryClient.invalidateQueries({ queryKey: [`/api/admin/messages/${selectedUserId}`] });
+      }
+      toast({
+        title: "Success",
+        description: "Message sent successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSendMessage = () => {
+    if (!selectedUserId || !messageContent.trim()) return;
+    sendMessageMutation.mutate({
+      userId: selectedUserId,
+      content: messageContent,
+    });
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-[600px]">
+      <Card className="md:col-span-1">
+        <CardHeader>
+          <CardTitle>Users</CardTitle>
+          <p className="text-sm text-muted-foreground">Select a user to message</p>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-y-auto max-h-[500px]">
+            {allUsers?.map((usr) => (
+              <button
+                key={usr.id}
+                onClick={() => setSelectedUserId(usr.id)}
+                className={`w-full text-left p-4 hover-elevate border-b transition-colors ${
+                  selectedUserId === usr.id ? "bg-accent" : ""
+                }`}
+                data-testid={`user-${usr.id}`}
+              >
+                <div className="font-semibold">
+                  {usr.firstName} {usr.lastName}
+                </div>
+                <div className="text-sm text-muted-foreground">{usr.email}</div>
+                <Badge variant="outline" className="text-xs mt-1">
+                  {usr.role}
+                </Badge>
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="md:col-span-2">
+        <CardHeader>
+          <CardTitle>
+            {selectedUserId
+              ? `Conversation with ${allUsers?.find(u => u.id === selectedUserId)?.firstName} ${allUsers?.find(u => u.id === selectedUserId)?.lastName}`
+              : "Select a user to start messaging"}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {selectedUserId ? (
+            <div className="space-y-4">
+              <div className="border rounded-lg p-4 max-h-[350px] overflow-y-auto space-y-3">
+                {conversation && conversation.length > 0 ? (
+                  conversation.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`flex ${msg.adminId === user?.id ? "justify-end" : "justify-start"}`}
+                    >
+                      <div
+                        className={`max-w-[70%] rounded-lg p-3 ${
+                          msg.adminId === user?.id
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-accent"
+                        }`}
+                      >
+                        <p className="text-sm">{msg.content}</p>
+                        <p className="text-xs opacity-70 mt-1">
+                          {new Date(msg.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center text-muted-foreground py-8">
+                    No messages yet. Start the conversation!
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Type your message..."
+                  value={messageContent}
+                  onChange={(e) => setMessageContent(e.target.value)}
+                  onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                  data-testid="input-admin-message"
+                />
+                <Button
+                  onClick={handleSendMessage}
+                  disabled={!messageContent.trim() || sendMessageMutation.isPending}
+                  data-testid="button-send-admin-message"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center text-muted-foreground py-12">
+              Select a user from the list to start messaging
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ===== ADMIN ANALYTICS TAB =====
+function AdminAnalyticsTab() {
+  const { data: metrics } = useQuery<any>({
+    queryKey: ["/api/admin/metrics"],
+  });
+
+  const { data: allBookings } = useQuery<any[]>({
+    queryKey: ["/api/admin/bookings"],
+  });
+
+  const totalRevenue = allBookings?.reduce((sum, b) => sum + parseFloat(b.totalPrice || 0), 0) || 0;
+  const totalPlatformFees = allBookings?.reduce((sum, b) => sum + parseFloat(b.platformFee || 0), 0) || 0;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total Users
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">{metrics?.totalUsers || 0}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Active Guardians
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">{metrics?.totalGuardians || 0}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total Bookings
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">{allBookings?.length || 0}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Platform Revenue
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">${totalPlatformFees.toFixed(2)}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              From ${totalRevenue.toFixed(2)} total
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Booking Status Distribution</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {["pending", "confirmed", "completed", "cancelled"].map((status) => {
+              const count = allBookings?.filter(b => b.status === status).length || 0;
+              const percentage = allBookings?.length ? (count / allBookings.length * 100).toFixed(1) : 0;
+              return (
+                <div key={status}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium capitalize">{status}</span>
+                    <span className="text-sm text-muted-foreground">{count} ({percentage}%)</span>
+                  </div>
+                  <div className="h-2 bg-accent rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary"
+                      style={{ width: `${percentage}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function PricingTierManagement() {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);

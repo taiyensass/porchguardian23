@@ -319,3 +319,36 @@ export const insertPackageSchema = createInsertSchema(packages).omit({
 
 export type InsertPackage = z.infer<typeof insertPackageSchema>;
 export type Package = typeof packages.$inferSelect;
+
+// Admin messages - direct communication between admins and users
+export const adminMessages = pgTable("admin_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+  adminId: varchar("admin_id").notNull().references(() => users.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+  content: text("content").notNull(),
+  isRead: boolean("is_read").notNull().default(false),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const adminMessagesRelations = relations(adminMessages, ({ one }) => ({
+  user: one(users, {
+    fields: [adminMessages.userId],
+    references: [users.id],
+    relationName: "userAdminMessages",
+  }),
+  admin: one(users, {
+    fields: [adminMessages.adminId],
+    references: [users.id],
+    relationName: "adminSentMessages",
+  }),
+}));
+
+export const insertAdminMessageSchema = createInsertSchema(adminMessages).omit({
+  id: true,
+  createdAt: true,
+  readAt: true,
+});
+
+export type InsertAdminMessage = z.infer<typeof insertAdminMessageSchema>;
+export type AdminMessage = typeof adminMessages.$inferSelect;
